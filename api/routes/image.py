@@ -4,12 +4,9 @@ from sanic.response import json, HTTPResponse
 from sanic_ext import openapi
 from services.image_service import ImageService
 from utils.logger import logger
-from api.schema.image import (
-    CreateImageRequest, EditImageRequest, BatchCreateRequest
-)
-from api.schema.response import (
-    BaseResponse, ErrorCode, ErrorMessage
-)
+from api.schema.image import CreateImageRequest, EditImageRequest, BatchCreateRequest
+from api.schema.response import BaseResponse, ErrorCode, ErrorMessage
+
 from pydantic import ValidationError
 
 # 创建蓝图
@@ -58,14 +55,29 @@ async def generate_image(request: Request):
 async def edit_image(request: Request):
     """编辑图片"""
     try:
-        data = EditImageRequest(**request.json)
-        logger.info(f"收到图片编辑请求: {data.prompt[:50]}")
+        # 检查是否有上传的图片文件
+        if not request.files or not request.files.getlist('image'):
+            return json(BaseResponse(
+                code=ErrorCode.BAD_REQUEST,
+                message=ErrorMessage.PLEASE_SELECT_IMAGE
+            ).model_dump(), status=400)
         
+        # 获取上传的图片文件
+        files = request.files.getlist('image')
+
+        # 使用EditImageRequest验证参数
+        data = EditImageRequest(
+            prompt=request.form.get('prompt'),
+            model=request.form.get('model'),
+            n=int(request.form.get('n', 1)),
+            size=request.form.get('size')
+        )
+
         result = await image_service.edit_image(
             prompt=data.prompt,
-            image_source=data.image_source,
+            files=files,  # 直接传递files对象
             model=data.model,
-            n=data.n,
+            n=data.n
         )
         
         return json(BaseResponse(
@@ -80,6 +92,13 @@ async def edit_image(request: Request):
             code=ErrorCode.VALIDATION_ERROR,
             message=ErrorMessage.VALIDATION_ERROR,
             data={"detail": str(e)}
+        ).model_dump(), status=400)
+    except (ValueError, IndexError) as e:
+        logger.error(f"参数错误: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.VALIDATION_ERROR,
+            message=ErrorMessage.VALIDATION_ERROR,
+            data={"detail": "参数格式错误"}
         ).model_dump(), status=400)
     except Exception as e:
         logger.error(f"编辑图片失败: {e}")
@@ -140,8 +159,12 @@ async def list_models(request: Request):
         {
             "id": "gemini-2.5-flash-image-preview",
             "name": "Gemini 2.5 Flash Image Preview",
-            "description": "Google Gemini 2.5 Flash 图片生成模型",
-            "max_size": "1024x1024",
+            "description": "Nano Banana 1.0 图片生成模型 (¥0.1/张)",
+        },
+        {
+            "id": "gemini-3-pro-image-preview",
+            "name": "Gemini 3 Pro Image Preview",
+            "description": "Nano Banana 2.0 图片生成模型 (¥0.2/张)",
             "max_n": 10
         }
     ]
@@ -167,7 +190,19 @@ async def upload_image(request: Request):
             ).dict(), status=400)
         
         # 获取上传的文件
-        file = request.files.get('image')[0]
+        files = request.files.get('image')
+        if not files:
+            return json(BaseResponse(
+                code=ErrorCode.BAD_REQUEST,
+                message=ErrorMessage.PLEASE_SELECT_IMAGE
+            ).dict(), status=400)
+        
+        # Sanic的files可能是列表或单个文件
+        if isinstance(files, list):
+            file = files[0]
+        else:
+            file = files
+        
         filename = file.name
         image_data = file.body
         
@@ -269,17 +304,19 @@ async def get_usage_info(request: Request):
         "edit": {
             "endpoint": "/api/v1/image/edit",
             "method": "POST",
+            "content-type": "multipart/form-data",
             "description": "编辑图片",
             "parameters": {
+                "image": "图片文件（必填）",
                 "prompt": "编辑描述（必填）",
-                "image_source": "图片URL或base64编码（必填）",
-                "model": "模型名称（可选）",
-                "n": "生成图片数量（可选，默认4）"
+                "model": "模型名称（可选，默认gemini-2.5-flash-image-preview）",
+                "n": "生成图片数量（可选，默认1）"
             },
-            "example": {
+            "example_form": {
+                "image": "file",
                 "prompt": "给这只猫戴上一顶帽子",
-                "image_source": "data:image/jpeg;base64,...",
-                "n": 4
+                "model": "gemini-2.5-flash-image-preview",
+                "n": 1
             }
         }
     }

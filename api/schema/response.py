@@ -43,9 +43,10 @@ class ErrorCode:
     GATEWAY_TIMEOUT = 504
     
     # 业务错误 (600+)
-    IMAGE_GENERATE_FAILED = 600
-    IMAGE_EDIT_FAILED = 601
-    IMAGE_UPLOAD_FAILED = 602
+    CREATE_FAILED = 600
+    IMAGE_GENERATE_FAILED = 601
+    IMAGE_EDIT_FAILED = 602
+    IMAGE_UPLOAD_FAILED = 603
 
 
 # 错误消息定义
@@ -72,6 +73,13 @@ class ErrorMessage:
     BATCH_PROCESS_COMPLETE = "批量处理完成"
     PLEASE_SELECT_IMAGE = "请选择要上传的图片"
     PROVIDE_IMAGE_URL = "请提供图片URL"
+    
+    # 身份验证服务
+    API_KEY_CREATE_SUCCESS = "API密钥创建成功"
+    API_KEY_CREATE_FAILED = "API密钥创建失败"
+    API_KEY_UPDATE_SUCCESS = "API密钥更新成功"
+    API_KEY_REVOKE_SUCCESS = "API密钥撤销成功"
+    AUTH_SUCCESS = "认证成功"
     
     # 配置服务
     CONFIG_TYPE_CREATED = "配置类型创建成功"

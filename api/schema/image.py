@@ -14,9 +14,9 @@ class CreateImageRequest(BaseModel):
 class EditImageRequest(BaseModel):
     """编辑图片请求"""
     prompt: str = Field(..., description="编辑描述", min_length=1, max_length=1000)
-    image_source: str = Field(..., description="图片来源（URL或base64）")
     model: str = Field("gemini-2.5-flash-image-preview", description="模型名称")
-    n: int = Field(4, ge=1, le=10, description="生成图片数量")
+    n: Optional[int] = Field(1, ge=1, le=10, description="生成图片数量")
+    size: Optional[str] = Field(default="1024x1024", description="图片尺寸")
 
 
 class BatchCreateRequest(BaseModel):

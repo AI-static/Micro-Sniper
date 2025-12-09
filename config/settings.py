@@ -17,9 +17,12 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_db: int = 0
     redis_password: Optional[str] = None
-    
-    # 数据库配置
-    db_url: str = "postgresql://user:password@localhost:5432/dbname"
+
+    pg_host: str = "localhost"
+    pg_port: int = 5432
+    pg_user: str = None
+    pg_password: str = None
+    pg_database: str = 'aether'
     
     # 其他服务配置
     ezlink_api_key: Optional[str] = None
@@ -52,3 +55,47 @@ REDIS_HOST = settings.redis_host
 REDIS_PORT = settings.redis_port
 REDIS_DB = settings.redis_db
 REDIS_PASSWORD = settings.redis_password
+
+
+def create_db_config() -> dict:
+    return {
+        "connections": {
+            "default": {
+                "engine": "tortoise.backends.asyncpg",
+                "credentials": {
+                    "host": global_settings.postgres.host,
+                    "port": global_settings.postgres.port,
+                    "user": global_settings.postgres.user,
+                    "password": global_settings.postgres.password,
+                    "database": global_settings.postgres.database,
+                    "schema": "public",
+                    "maxsize": 100,
+                    "minsize": 500,
+                    "command_timeout": 30,  # 增加超时时间
+                    "server_settings": {
+                        # PostgreSQL服务器设置
+                        "application_name": global_settings.app.name,
+                        "tcp_keepalives_idle": "300",
+                        "tcp_keepalives_interval": "30",
+                        "tcp_keepalives_count": "3",
+                    },
+                    # SSL设置（可能影响性能）
+                    "ssl": "prefer",  # 或 False, True, "require"
+                }
+            }
+        },
+        "apps": {
+            "models": {
+                "models": [
+                    "app.models.identity.policy",
+                    "app.models.identity.application",
+                    "app.models.document.file",
+                    "app.models.document.item",
+                    "app.models.kb.kb"
+                ],
+                "default_connection": "default"
+            }
+        },
+        "use_tz": False,
+        "timezone": "Asia/Shanghai",
+    }

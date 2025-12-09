@@ -1,6 +1,6 @@
 """图片生成服务"""
 from typing import List, Dict, Any
-from adapters.ezlink.image import EzlinkAdapter
+from adapters.ezlink.image import ImageAdapter
 from utils.logger import logger
 from utils.exceptions import BusinessException
 from api.schema.response import ErrorCode
@@ -15,7 +15,7 @@ class ImageService:
     """图片生成业务服务"""
     
     def __init__(self):
-        self.ezlink = EzlinkAdapter()
+        self.ezlink = ImageAdapter()
         # 图片存储目录
         self.image_dir = settings.image_dir
         # 图片URL路径（固定路径）
@@ -56,47 +56,22 @@ class ImageService:
         logger.info(f"图片生成成功，数量: {len(images)}")
         return response
     
-    async def edit_image(self, prompt: str, image_source: str, 
+    async def edit_image(self, prompt: str, files,
                         model: str = "gemini-2.5-flash-image-preview", 
-                        n: int = 4) -> Dict[str, Any]:
+                        n: int = 1) -> Dict[str, Any]:
         """
         编辑图片
         :param prompt: 编辑描述
-        :param image_source: 图片来源（URL或base64）
+        :param files: 图片文件（可能是单个文件或文件列表）
         :param model: 模型名称
         :param n: 生成图片数量
         :return: 编辑后的图片信息
         """
         logger.info(f"开始编辑图片: {prompt[:100]}")
+        logger.info(f"files type: {type(files)}")
         
-        # 获取图片数据
-        image_data = None
-        
-        if image_source.startswith("http"):
-            # 从URL下载图片
-            image_data = await self.ezlink.get_image_from_url(image_source)
-        elif image_source.startswith("data:image"):
-            # 从base64解码
-            try:
-                # 去掉data:image/png;base64,前缀
-                base64_data = image_source.split(",", 1)[1]
-                image_data = base64.b64decode(base64_data)
-            except Exception as e:
-                logger.error(f"解码base64图片失败: {e}")
-                raise BusinessException(f"无效的图片数据: {str(e)}", ErrorCode.IMAGE_EDIT_FAILED)
-        else:
-            # 纯base64
-            try:
-                image_data = base64.b64decode(image_source)
-            except Exception as e:
-                logger.error(f"解码base64图片失败: {e}")
-                raise BusinessException(f"无效的图片数据: {str(e)}", ErrorCode.IMAGE_EDIT_FAILED)
-        
-        if not image_data:
-            raise BusinessException("无法获取图片数据", ErrorCode.IMAGE_EDIT_FAILED)
-        
-        # 调用Ezlink编辑API
-        result = await self.ezlink.edit_image(prompt, image_data, model, n)
+        # 调用Ezlink编辑API，一次性传入所有图片
+        result = await self.ezlink.edit_image(prompt, files, model, n)
         
         if not result:
             raise BusinessException("Ezlink API 返回空结果", ErrorCode.IMAGE_EDIT_FAILED)
@@ -111,13 +86,12 @@ class ImageService:
             "images": images,
             "usage": result.get("usage", {}),
             "prompt": prompt,
-            "model": model,
-            "original_image_size": len(image_data)
+            "model": model
         }
         
         logger.info(f"图片编辑成功，数量: {len(images)}")
         return response
-    
+
     async def _save_images_with_urls(self, result: Dict, prefix: str = "generated") -> List[Dict[str, Any]]:
         """
         保存图片并返回访问URL
