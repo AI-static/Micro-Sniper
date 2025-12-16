@@ -50,7 +50,7 @@ class BaseConnector(ABC):
 
             self.context_id = context_id
             browser_context = None
-
+            logger.info(f"self.context_id {self.context_id}")
             if self.context_id:
                 # 同步上下文，一般用于保留登陆状态的情况
                 browser_context = BrowserContext(self.context_id, auto_upload=True)
@@ -73,6 +73,7 @@ class BaseConnector(ABC):
                 screen=screen_option,
                 solve_captchas=True,
                 use_stealth=True,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 fingerprint=BrowserFingerprint(
                     devices=["desktop"],
                     operating_systems=["windows"],
@@ -95,18 +96,18 @@ class BaseConnector(ABC):
         """获取浏览器语言设置，子类可重写"""
         return ["zh-CN"]
 
-    async def _ensure_session(self):
+    async def _ensure_session(self, context_id=None):
         """确保会话已初始化"""
         if not self.session:
-            await self.init_session()
+            await self.init_session(context_id)
 
-    async def _get_browser_context(self) -> Tuple[Any, Any, Any]:
+    async def _get_browser_context(self, context_id=None) -> Tuple[Any, Any, Any]:
         """获取浏览器上下文（连接到 CDP）
 
         Returns:
             tuple: (playwright, browser, context)
         """
-        await self._ensure_session()
+        await self._ensure_session(context_id)
         endpoint_url = self.session.browser.get_endpoint_url()
 
         p = await async_playwright().start()
@@ -270,7 +271,7 @@ class BaseConnector(ABC):
     # ==================== 需要子类实现的抽象方法 ====================
 
     @abstractmethod
-    async def extract_summary(
+    async def extract_summary_stream(
         self,
         urls: List[str]
     ) -> List[Dict[str, Any]]:
@@ -353,19 +354,18 @@ class BaseConnector(ABC):
         """
         raise NotImplementedError(f"{self.platform_name} does not support harvest_user_content")
 
-    @abstractmethod
     async def login_with_cookies(
             self,
             cookies: Dict[str, str],
             source: str = "default",
             source_id: str = "default"
     ) -> str:
-        """根据cookie登陆
-        
+        """根据cookie登陆（可选实现）
+
         Returns:
             str: context_id 用于恢复登录态
         """
-        pass
+        raise NotImplementedError(f"{self.platform_name} does not support login_with_cookies")
 
     async def publish_content(
         self,

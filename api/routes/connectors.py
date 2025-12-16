@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """连接器API路由"""
+from pickle import FALSE
+
 from sanic import Blueprint, Request
 from sanic.response import json, ResponseStream
 import ujson as json_lib
@@ -7,7 +9,7 @@ import asyncio
 from services.connectors import connector_service
 from utils.logger import logger
 from api.schema.base import BaseResponse, ErrorCode, ErrorMessage
-from api.schema.connectors import ExtractRequest, HarvestRequest, PublishRequest, LoginRequest
+from api.schema.connectors import ExtractRequest, HarvestRequest, PublishRequest, LoginRequest, SearchRequest, ExtractByCreatorRequest
 from pydantic import BaseModel, Field, ValidationError
 from models.connectors import PlatformType
 
@@ -21,16 +23,36 @@ connectors_bp = Blueprint("connectors", url_prefix="/connectors")
 async def extract_summary(request: Request):
     """提取URL内容摘要 - SSE 流式输出"""
 
-    return ResponseStream(
-            connector_service.extract_summary_stream,
-            headers={
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no"
-            }
-        )
+    async def stream_response(response):
+        try:
+            data = ExtractRequest.model_validate(request.json)
+        except ValidationError as e:
+            # 参数验证失败，发送错误事件
+            await response.write(f"data: {json_lib.dumps({'type': 'error', 'message': f'参数验证失败: {str(e)}', 'data': {'error_type': 'validation_error'}}, ensure_ascii=False)}\n\n")
+            return
+        except Exception as e:
+            # 其他错误
+            await response.write(f"data: {json_lib.dumps({'type': 'error', 'message': f'请求数据格式错误: {str(e)}', 'data': {'error_type': 'request_error'}}, ensure_ascii=False)}\n\n")
+            return
+        
+        # 流式获取结果并发送SSE事件
+        async for event in connector_service.extract_summary_stream(
+            urls=data.urls,
+            platform=data.platform,
+            concurrency=data.concurrency,
+            context_id=data.context_id
+        ):
+            await response.write(f"data: {json_lib.dumps(event, ensure_ascii=False)}\n\n")
 
+    return ResponseStream(
+        stream_response,
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 @connectors_bp.post("/harvest")
 async def harvest_content(request: Request):
@@ -42,7 +64,8 @@ async def harvest_content(request: Request):
         results = await connector_service.harvest_user_content(
             platform=data.platform,
             user_id=data.user_id,
-            limit=data.limit
+            limit=data.limit,
+            context_id=data.context_id
         )
 
         return json(BaseResponse(
@@ -90,7 +113,7 @@ async def publish_content(request: Request):
             content_type=data.content_type,
             images=data.images or [],
             tags=data.tags or [],
-            session_id=data.session_id
+            context_id=data.context_id
         )
 
         return json(BaseResponse(
@@ -237,7 +260,8 @@ async def get_note_detail(request: Request):
         # 获取笔记详情
         results = await connector_service.get_note_details(
             urls=data.urls,
-            platform=data.platform
+            platform=data.platform,
+            context_id=data.context_id
         )
         
         # 统计结果
@@ -284,26 +308,15 @@ async def get_note_detail(request: Request):
 async def extract_by_creator(request: Request):
     """通过创作者ID提取内容"""
     try:
-        data = request.json
-        creator_id = data.get("creator_id")
-        platform = data.get("platform")
-        limit = data.get("limit")
-        extract_details = data.get("extract_details", False)
-        
-        if not creator_id or not platform:
-            return json(BaseResponse(
-                code=ErrorCode.BAD_REQUEST,
-                message="缺少 creator_id 或 platform 参数",
-                data={"error": "creator_id and platform are required"}
-            ).model_dump(), status=400)
-        
-        logger.info(f"通过创作者ID提取内容: platform={platform}, creator_id={creator_id}")
+        data = ExtractByCreatorRequest.model_validate(request.json)
+        logger.info(f"通过创作者ID提取内容: platform={data.platform}, creator_id={data.creator_id}")
         
         results = await connector_service.extract_by_creator_id(
-            platform=platform,
-            creator_id=creator_id,
-            limit=limit,
-            extract_details=extract_details
+            platform=data.platform,
+            creator_id=data.creator_id,
+            limit=data.limit,
+            extract_details=data.extract_details,
+            context_id=data.context_id
         )
         
         return json(BaseResponse(
@@ -315,6 +328,20 @@ async def extract_by_creator(request: Request):
             }
         ).model_dump())
         
+    except ValidationError as e:
+        logger.error(f"参数验证失败: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.VALIDATION_ERROR,
+            message=ErrorMessage.VALIDATION_ERROR,
+            data={"detail": str(e)}
+        ).model_dump(), status=400)
+    except ValueError as e:
+        logger.error(f"参数错误: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.BAD_REQUEST,
+            message=str(e),
+            data={"error": str(e)}
+        ).model_dump(), status=400)
     except Exception as e:
         logger.error(f"提取失败: {e}")
         return json(BaseResponse(
@@ -328,26 +355,15 @@ async def extract_by_creator(request: Request):
 async def search_and_extract(request: Request):
     """搜索并提取内容"""
     try:
-        data = request.json
-        keyword = data.get("keyword")
-        platform = data.get("platform")
-        limit = data.get("limit", 20)
-        extract_details = data.get("extract_details", False)
-        
-        if not keyword or not platform:
-            return json(BaseResponse(
-                code=ErrorCode.BAD_REQUEST,
-                message="缺少 keyword 或 platform 参数",
-                data={"error": "keyword and platform are required"}
-            ).model_dump(), status=400)
-        
-        logger.info(f"搜索并提取内容: platform={platform}, keyword={keyword}")
+        data = SearchRequest.model_validate(request.json)
+        logger.info(f"搜索并提取内容: platform={data.platform}, keyword={data.keyword}")
         
         results = await connector_service.search_and_extract(
-            platform=platform,
-            keyword=keyword,
-            limit=limit,
-            extract_details=extract_details
+            platform=data.platform,
+            keyword=data.keyword,
+            limit=data.limit,
+            extract_details=data.extract_details,
+            context_id=data.context_id
         )
         
         return json(BaseResponse(
@@ -356,10 +372,24 @@ async def search_and_extract(request: Request):
             data={
                 "results": results,
                 "total": len(results),
-                "keyword": keyword
+                "keyword": data.keyword
             }
         ).model_dump())
         
+    except ValidationError as e:
+        logger.error(f"参数验证失败: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.VALIDATION_ERROR,
+            message=ErrorMessage.VALIDATION_ERROR,
+            data={"detail": str(e)}
+        ).model_dump(), status=400)
+    except ValueError as e:
+        logger.error(f"参数错误: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.BAD_REQUEST,
+            message=str(e),
+            data={"error": str(e)}
+        ).model_dump(), status=400)
     except Exception as e:
         logger.error(f"搜索失败: {e}")
         return json(BaseResponse(

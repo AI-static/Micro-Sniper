@@ -31,7 +31,7 @@ class ConnectorService:
         self._connectors = {}
         logger.info("[ConnectorService] Initialized")
 
-    def _get_connector(self, platform: str | PlatformType):
+    def _get_connector(self, platform: PlatformType):
         """获取或创建平台连接器
 
         Args:
@@ -78,81 +78,122 @@ class ConnectorService:
 
         return PlatformType.GENERIC
 
-    def _group_urls_by_platform(self, urls: List[str]) -> Dict[PlatformType, List[str]]:
-        """按平台分组URL
-
-        Args:
-            urls: URL列表
-
-        Returns:
-            平台 -> URL列表的字典
-        """
-        groups = {}
-        for url in urls:
-            platform = self._detect_platform(url)
-            if platform not in groups:
-                groups[platform] = []
-            groups[platform].append(url)
-
-        logger.debug(f"[ConnectorService] Grouped URLs: {dict((str(k), len(v)) for k, v in groups.items())}")
-        return groups
-
     # ==================== 核心 API ====================
 
-    async def extract_summary(
+    async def extract_summary_stream(
         self,
         urls: List[str],
-        platform: Optional[str] = None,
-        concurrency: Optional[int] = 10,
-    ) -> List[Dict[str, Any]]:
-        """提取URL内容
+        platform: PlatformType,
+        concurrency: int = 10,
+        context_id: Optional[str] = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """流式提取URL内容摘要
 
         Args:
             urls: 要提取的URL列表
-            platform: 平台名称，如不指定则自动检测
+            platform: 平台名称（必须指定）
+            concurrency: 并发数量
+            context_id: 上下文ID，用于保持登录态
 
-        Returns:
-            提取结果列表，每个元素包含 url、success、data 等字段
+        Yields:
+            提取结果字典，包含 url、success、data 等字段
         """
         try:
-            results = []
-
-            if platform:
-                # 指定平台
-                connector = self._get_connector(platform)
-                logger.info(f"[ConnectorService] Extracting {len(urls)} URLs from {platform}")
-                result = await connector.extract_summary(urls, concurrency)
-                results.extend(result)
+            connector = self._get_connector(platform)
+            logger.info(f"[ConnectorService] Streaming extraction from {platform}, {len(urls)} URLs, context_id={context_id}")
+            
+            # 发送开始事件
+            yield {
+                'type': 'start',
+                'message': '提取已启动',
+                'data': {
+                    'urls': urls,
+                    'platform': platform,
+                    'url_count': len(urls),
+                    'concurrency': concurrency,
+                    'context_id': context_id
+                }
+            }
+            
+            processed = 0
+            success_count = 0
+            
+            # 检查 connector 是否有 extract_summary_stream 方法
+            if hasattr(connector, 'extract_summary_stream'):
+                # 直接使用 connector 的流式方法
+                async for result in connector.extract_summary_stream(urls, concurrency, context_id):
+                    processed += 1
+                    if result.get('success'):
+                        success_count += 1
+                    
+                    # 发送结果事件
+                    yield {
+                        'type': 'result',
+                        'data': result,
+                        'progress': {
+                            'current': processed,
+                            'total': len(urls),
+                            'success_count': success_count
+                        }
+                    }
             else:
-                # 自动检测并分组
-                platform_urls = self._group_urls_by_platform(urls)
-                logger.info(f"[ConnectorService] Extracting {len(urls)} URLs across {len(platform_urls)} platforms")
-
-                for pf, url_list in platform_urls.items():
-                    connector = self._get_connector(pf)
-                    result = await connector.extract_summary(url_list)
-                    results.extend(result)
-
-            success_count = sum(1 for r in results if r.get("success"))
-            logger.info(f"[ConnectorService] Extraction completed: {success_count}/{len(results)} successful")
-
-            return results
-
+                yield {
+                    'type': 'error',
+                    'message': '此渠道没有extract_summary_stream方法',
+                    'data': {
+                        'platform': platform,
+                        'error': 'method_not_supported'
+                    }
+                }
+                return
+            
+            # 发送完成事件
+            failed_count = processed - success_count
+            yield {
+                'type': 'complete',
+                'message': f'提取完成：{success_count}/{processed} 成功',
+                'data': {
+                    'total': processed,
+                    'success_count': success_count,
+                    'failed_count': failed_count
+                }
+            }
+            
+        except ValueError as e:
+            logger.error(f"[ConnectorService] ValueError in extract_summary_stream: {e}")
+            yield {
+                'type': 'error',
+                'message': str(e),
+                'data': {
+                    'platform': platform,
+                    'error_type': 'value_error'
+                }
+            }
         except Exception as e:
-            logger.error(f"[ConnectorService] Extract error: {e}")
-            raise
-
+            logger.error(f"[ConnectorService] Unexpected error in extract_summary_stream: {e}")
+            yield {
+                'type': 'error',
+                'message': f'提取过程中发生错误: {str(e)}',
+                'data': {
+                    'platform': platform,
+                    'error_type': 'unexpected_error'
+                }
+            }
+    
     async def get_note_details(
         self,
         urls: List[str],
-        platform: Optional[str] = None,
-        concurrency: int = 3
+        platform: PlatformType,
+        concurrency: int = 3,
+        context_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """获取笔记/文章详情（快速提取，不使用Agent）
 
         Args:
             urls: 要提取的URL列表
             platform: 平台名称，如不指定则自动检测
+            concurrency: 并发数
+            context_id: 上下文ID，用于保持登录态
 
         Returns:
             提取结果列表，每个元素包含 url、success、data 等字段
@@ -160,23 +201,12 @@ class ConnectorService:
         try:
             results = []
 
-            if platform:
-                # 指定平台
-                connector = self._get_connector(platform)
-                logger.info(f"[ConnectorService] Getting note details for {len(urls)} URLs from {platform}")
-
-                # 调用 get_note_detail 方法
-                results = await connector.get_note_detail(urls, concurrency=concurrency)
-            else:
-                # 自动检测并分组
-                platform_urls = self._group_urls_by_platform(urls)
-                logger.info(f"[ConnectorService] Getting note details for {len(urls)} URLs across {len(platform_urls)} platforms")
-
-                for pf, url_list in platform_urls.items():
-                    connector = self._get_connector(pf)
-                    
-                    platform_results = await connector.get_note_detail(url_list, concurrency=concurrency)
-                    results.extend(platform_results)
+            # 指定平台
+            connector = self._get_connector(platform)
+            logger.info(f"[ConnectorService] Getting note details for {len(urls)} URLs from {platform}, context_id={context_id}")
+                
+            # 调用 get_note_detail 方法
+            results = await connector.get_note_detail(urls, concurrency=concurrency, context_id=context_id)
 
             success_count = sum(1 for r in results if r.get("success"))
             logger.info(f"[ConnectorService] Get note details completed: {success_count}/{len(results)} successful")
@@ -191,7 +221,8 @@ class ConnectorService:
         self,
         platform: str | PlatformType,
         user_id: str,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
+        context_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """采收用户/账号的所有内容
 
@@ -199,15 +230,16 @@ class ConnectorService:
             platform: 平台名称
             user_id: 用户ID或账号标识
             limit: 限制数量
+            context_id: 上下文ID，用于保持登录态
 
         Returns:
             内容列表
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Harvesting user content from {platform}, user={user_id}, limit={limit}")
-
-            result = await connector.harvest_user_content(user_id, limit)
+            logger.info(f"[ConnectorService] Harvesting user content from {platform}, user={user_id}, limit={limit}, context_id={context_id}")
+            
+            result = await connector.harvest_user_content(user_id, limit, context_id)
 
             logger.info(f"[ConnectorService] Harvested {len(result)} items")
             return result
@@ -226,6 +258,7 @@ class ConnectorService:
         content_type: str = "text",
         images: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        context_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """发布内容到平台
 
@@ -235,19 +268,16 @@ class ConnectorService:
             content_type: 内容类型 (text/image/video)
             images: 图片URL列表
             tags: 标签列表
-            session_id: 可选的会话ID，用于复用已登录会话
+            context_id: 上下文ID，用于保持登录态
 
         Returns:
             发布结果字典，包含 success、platform 等字段
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Publishing content to {platform}, type={content_type}")
+            logger.info(f"[ConnectorService] Publishing content to {platform}, type={content_type}, context_id={context_id}")
 
-
-            await connector.init_session()
-
-            result = await connector.publish_content(content, content_type, images, tags)
+            result = await connector.publish_content(content, content_type, images, tags, context_id)
 
             status = "successful" if result.get("success") else "failed"
             logger.info(f"[ConnectorService] Publish {status}")
@@ -266,7 +296,8 @@ class ConnectorService:
         platform: str | PlatformType,
         creator_id: str,
         limit: Optional[int] = None,
-        extract_details: bool = False
+        extract_details: bool = False,
+        context_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """通过创作者ID提取内容
 
@@ -275,18 +306,20 @@ class ConnectorService:
             creator_id: 创作者ID
             limit: 限制数量
             extract_details: 是否提取详情
+            context_id: 上下文ID，用于保持登录态
 
         Returns:
             提取结果列表
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Extracting by creator ID from {platform}, creator={creator_id}")
+            logger.info(f"[ConnectorService] Extracting by creator ID from {platform}, creator={creator_id}, context_id={context_id}")
             
             results = await connector.extract_by_creator_id(
                 creator_id=creator_id,
                 limit=limit,
-                extract_details=extract_details
+                extract_details=extract_details,
+                context_id=context_id
             )
             
             logger.info(f"[ConnectorService] Extracted {len(results)} items by creator ID")
@@ -301,7 +334,8 @@ class ConnectorService:
         platform: str | PlatformType,
         keyword: str,
         limit: int = 20,
-        extract_details: bool = False
+        extract_details: bool = False,
+        context_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """搜索并提取内容
 
@@ -310,18 +344,20 @@ class ConnectorService:
             keyword: 搜索关键词
             limit: 限制数量
             extract_details: 是否提取详情
+            context_id: 上下文ID，用于保持登录态
 
         Returns:
             搜索结果列表
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Searching and extracting from {platform}, keyword={keyword}")
+            logger.info(f"[ConnectorService] Searching and extracting from {platform}, keyword={keyword}, context_id={context_id}")
             
             results = await connector.search_and_extract(
                 keyword=keyword,
                 limit=limit,
-                extract_details=extract_details
+                extract_details=extract_details,
+                context_id=context_id
             )
             
             logger.info(f"[ConnectorService] Found {len(results)} search results")
