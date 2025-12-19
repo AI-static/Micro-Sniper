@@ -15,6 +15,7 @@ from .wechat import WechatConnector
 from .generic import GenericConnector
 from utils.logger import logger
 from models.connectors import PlatformType, LoginMethod
+from services.config_service import ConfigService
 
 
 class ConnectorService:
@@ -184,8 +185,8 @@ class ConnectorService:
         self,
         urls: List[str],
         platform: PlatformType,
+        context_id: Optional[str] = None,
         concurrency: int = 3,
-        context_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """获取笔记/文章详情（快速提取，不使用Agent）
 

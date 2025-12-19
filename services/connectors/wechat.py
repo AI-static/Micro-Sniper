@@ -2,16 +2,16 @@
 """微信公众号连接器 - 支持文章提取和监控"""
 
 import asyncio
-from enum import Enum
+import json
 from agentbay.browser.browser_agent import ActOptions
-from typing import Dict, Any, List, Optional
-from typing import Optional, List
-from playwright.async_api import Page
+from typing import Dict, Any, List, Optional, AsyncGenerator
+import aiohttp
 
 from .base import BaseConnector
 from utils.logger import logger
 from pydantic import BaseModel, Field
 from models.connectors import PlatformType
+from config.settings import settings
 
 class GzhArticleSummary(BaseModel):
     """公众号文章摘要（用于URL列表详情提取）"""
@@ -26,6 +26,9 @@ class WechatConnector(BaseConnector):
 
     def __init__(self):
         super().__init__(platform_name=PlatformType.WECHAT)
+        self.rss_url = settings.wechat.rss_url
+        self.rss_timeout = settings.wechat.rss_timeout
+        self.rss_buffer_size = settings.wechat.rss_buffer_size
 
     async def login_with_cookies(self,
                                  cookies: Dict[str, str],
@@ -45,7 +48,7 @@ class WechatConnector(BaseConnector):
         instruction = "根据数据结构提取相关内容，并进行内容总结分析"
 
         # 初始化一次 session 和 browser context，所有 URL 共享
-        p, browser, context = await self._get_browser_context(context_id)
+        p, browser, context, session = await self._get_browser_context(context_id)
 
         try:
             # 创建信号量来限制并发数
@@ -65,7 +68,7 @@ class WechatConnector(BaseConnector):
 
                         # 关闭可能出现的弹窗
                         try:
-                            agent = self.session.browser.agent
+                            agent = session.browser.agent
                             await agent.act_async(
                                 ActOptions(action="如果有弹窗或广告，关闭它们，然后滑动到文章最下边。"),
                                 page=page
@@ -142,7 +145,7 @@ class WechatConnector(BaseConnector):
         Returns:
             提取结果列表
         """
-        p, browser, context = await self._get_browser_context()
+        p, browser, context, session = await self._get_browser_context()
         
         try:
             semaphore = asyncio.Semaphore(concurrency)
@@ -279,139 +282,167 @@ class WechatConnector(BaseConnector):
         )
 
     
+    async def _parse_json_stream(
+        self,
+        url: str,
+        keyword: Optional[str] = None,
+        limit: int = 20
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """高效流式解析 JSON 订阅源
+        
+        Args:
+            url: 订阅源 URL
+            keyword: 搜索关键字（可选）
+            limit: 返回结果数量限制
+            
+        Yields:
+            匹配的文章项
+        """
+        count = 0
+        
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.rss_timeout)) as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        logger.error(f"[wechat] RSS feed returned status {response.status}")
+                        return
+                    
+                    # 使用流式读取，避免全量加载到内存
+                    buffer = ""
+                    in_items = False
+                    brace_count = 0
+                    in_string = False
+                    escape_next = False
+                    
+                    async for chunk in response.content.iter_chunked(self.rss_buffer_size):
+                        buffer += chunk.decode('utf-8', errors='ignore')
+                        
+                        # 如果还没找到 items 数组，继续查找
+                        if not in_items:
+                            items_start = buffer.find('"items":[')
+                            if items_start != -1:
+                                in_items = True
+                                buffer = buffer[items_start + 9:]  # 跳过 "items":[
+                                brace_count = 0
+                        
+                        # 已找到 items，开始解析每个对象
+                        while in_items and buffer:
+                            for i, char in enumerate(buffer):
+                                if escape_next:
+                                    escape_next = False
+                                    continue
+                                    
+                                if char == '\\':
+                                    escape_next = True
+                                    continue
+                                    
+                                if char == '"' and not escape_next:
+                                    in_string = not in_string
+                                    continue
+                                    
+                                if not in_string:
+                                    if char == '{':
+                                        if brace_count == 0:
+                                            item_start = i
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                        if brace_count == 0:
+                                            # 完整的 JSON 对象
+                                            item_json = buffer[item_start:i+1]
+                                            buffer = buffer[i+1:]
+                                            
+                                            try:
+                                                item = json.loads(item_json)
+                                                
+                                                # 关键字匹配
+                                                if keyword:
+                                                    search_text = f"{item.get('title', '')} {item.get('description', '')} {item.get('channel_name', '')}".lower()
+                                                    if keyword.lower() not in search_text:
+                                                        continue
+                                                
+                                                yield {
+                                                    "title": item.get("title", ""),
+                                                    "description": item.get("description", ""),
+                                                    "link": item.get("link", ""),
+                                                    "updated": item.get("updated", ""),
+                                                    "content": item.get("content", ""),
+                                                    "channel_name": item.get("channel_name", ""),
+                                                    "feed": item.get("feed", {}),
+                                                    "id": item.get("id", "")
+                                                }
+                                                
+                                                count += 1
+                                                if count >= limit:
+                                                    return
+                                                    
+                                            except json.JSONDecodeError:
+                                                logger.warning(f"[wechat] Failed to parse item JSON")
+                                            
+                                            break
+                            
+                            # 如果 buffer 太小，继续读取
+                            if len(buffer) < 100:
+                                break
+                                
+        except Exception as e:
+            logger.error(f"[wechat] Error parsing RSS feed: {e}")
+    
+    async def _search_from_rss(
+        self,
+        keyword: Optional[str] = None,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """从 RSS 订阅源搜索文章
+        
+        Args:
+            keyword: 搜索关键字（可选）
+            limit: 返回结果数量限制
+            
+        Returns:
+            搜索结果列表
+        """
+        if not self.rss_url:
+            logger.warning("[wechat] RSS URL not configured")
+            return []
+        
+        logger.info(f"[wechat] Searching from RSS feed: {self.rss_url}")
+        
+        results = []
+        async for item in self._parse_json_stream(self.rss_url, keyword, limit):
+            results.append({
+                "success": True,
+                "data": item,
+                "source": "rss_feed"
+            })
+        
+        logger.info(f"[wechat] Found {len(results)} articles from RSS feed")
+        return results
+    
     async def search_and_extract(
         self,
-        keyword: str,
+        keyword: Optional[str] = None,
         limit: int = 20,
         extract_details: bool = False,
         context_id = None
     ) -> List[Dict[str, Any]]:
         """搜索并提取微信文章
         
+        仅支持通过 RSS 订阅源获取文章
+        
         Args:
-            keyword: 搜索关键词
+            keyword: 搜索关键词（可选，如果不提供则返回所有文章）
             limit: 限制数量
             extract_details: 是否提取详情
             context_id
         Returns:
             搜索结果
         """
-        logger.info(f"[wechat] Searching for: {keyword}")
+        # 检查是否配置了 RSS 订阅源
+        if not self.rss_url:
+            raise ValueError(
+                "WeChat RSS URL not configured. Please set WECHAT__RSS_URL in your environment variables."
+            )
         
-        # 微信文章搜索接口
-        search_url = f"https://weixin.sogou.com/weixin?type=2&query={keyword}"
-        
-        p, browser, context = await self._get_browser_context(context_id)
-        
-        try:
-            page = await context.new_page()
-            await page.goto(search_url, timeout=60000)
-            await asyncio.sleep(3)
-            
-            # 使用evaluate直接提取搜索结果
-            articles = await page.evaluate("""
-                (limit) => {
-                    const articles = [];
-                    
-                    // 查找搜索结果列表容器
-                    const newsList = document.querySelector('.news-list');
-                    if (!newsList) return articles;
-                    
-                    // 获取所有li元素
-                    const listItems = newsList.querySelectorAll('li');
-                    
-                    Array.from(listItems).forEach((item, index) => {
-                        if (limit && index >= limit) return;
-                        
-                        // 提取标题和链接
-                        const titleEl = item.querySelector('h3 a');
-                        const title = titleEl ? titleEl.innerText.trim() : '';
-                        const href = titleEl ? titleEl.getAttribute('href') : '';
-                        
-                        if (href) {
-                            // 提取作者/公众号名
-                            const authorEl = item.querySelector('.s-p .all-time-y2');
-                            const author = authorEl ? authorEl.innerText.trim() : '';
-                            
-                            // 提取时间 - 在.s-p .s2中的script标签
-                            const timeEl = item.querySelector('.s-p .s2 script');
-                            let time = '';
-                            if (timeEl) {
-                                // 从script内容中提取时间戳
-                                const scriptText = timeEl.innerText;
-                                const match = scriptText.match(/timeConvert\('(\d+)'\)/);
-                                if (match) {
-                                    // 转换时间戳为可读格式
-                                    const timestamp = parseInt(match[1]);
-                                    const date = new Date(timestamp * 1000);
-                                    time = date.toLocaleString('zh-CN');
-                                }
-                            }
-                            
-                            // 提取摘要
-                            const descEl = item.querySelector('.txt-info');
-                            const desc = descEl ? descEl.innerText.trim() : '';
-                            
-                            // 提取图片
-                            const imgEl = item.querySelector('.img-box img');
-                            const image = imgEl ? imgEl.getAttribute('src') : '';
-                            
-                            articles.push({
-                                title: title,
-                                author: author,
-                                url: href,  // 这里是搜狗的跳转链接，需要后续处理
-                                publish_time: time,
-                                summary: desc,
-                                image: image,
-                                index: index
-                            });
-                        }
-                    });
-                    
-                    return articles;
-                }
-            """, limit or 20)
-            
-            logger.info(f"[wechat] Found {len(articles)} articles")
-            
-            # 转换为完整的URL
-            for article in articles:
-                if article.get("url") and article["url"].startswith("/"):
-                    article["url"] = f"https://weixin.sogou.com{article['url']}"
-                    logger.debug(f"[wechat] Converted relative URL to absolute: {article['url']}")
-            
-            logger.info(f"[wechat] Found {len(articles)} articles")
-            
-            if extract_details and articles:
-                # 提取每篇文章的详情
-                urls = [article.get("url") for article in articles if article.get("url")]
-                details = await self.get_note_detail(urls, concurrency=2, context_id=context_id)
-                
-                # 合并信息
-                results = []
-                for article, detail in zip(articles, details):
-                    if detail.get("success"):
-                        results.append({
-                            "success": True,
-                            "data": {
-                                **article,
-                                "detail": detail.get("data")
-                            }
-                        })
-                    else:
-                        results.append({
-                            "success": False,
-                            "error": detail.get("error"),
-                            "article_info": article
-                        })
-                
-                return results
-            else:
-                return [{
-                    "success": True,
-                    "data": article
-                } for article in articles]
-            
-        finally:
-            await browser.close()
-            await p.stop()
+        # 从 RSS 订阅源搜索
+        return await self._search_from_rss(keyword, limit)

@@ -76,6 +76,20 @@ class OSSConfig(BaseModel):
     bucket_name: Optional[str] = Field(default=None, description="OSS存储桶名称")
 
 
+class WechatConfig(BaseModel):
+    """微信连接器配置"""
+    rss_url: Optional[str] = Field(default=None, description="微信公众号订阅源URL")
+    rss_timeout: int = Field(default=30, description="订阅源请求超时时间(秒)")
+    rss_buffer_size: int = Field(default=8192, description="流式读取缓冲区大小")
+
+
+class IMConfig(BaseModel):
+    """微信连接器配置"""
+    wechat_corpid: str = Field(default=None, description="企业微信的企业id")
+    wechat_secret: str = Field(default=None, description="企业微信的应用密钥")
+    wechat_agent_id: int = Field(default=8192, description="企业微信的应用id")
+    wechat_token: str = Field(default=None, description="解密token")
+    wechat_encoding_aes_key: str = Field(default=None, description="解密字符串")
 # ==================================
 # 全局设置
 # ==================================
@@ -88,6 +102,8 @@ class GlobalSettings(BaseSettings):
     external_service: ExternalServiceConfig = Field(default_factory=ExternalServiceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     oss: OSSConfig = Field(default_factory=OSSConfig)
+    wechat: WechatConfig = Field(default_factory=WechatConfig)
+    im: IMConfig = Field(default_factory=IMConfig)
 
     model_config = SettingsConfigDict(
         env_file=".env",

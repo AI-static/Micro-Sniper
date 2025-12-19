@@ -42,6 +42,8 @@ class AuthMiddleware:
             
             # 将认证信息存储到请求上下文中
             request.ctx.auth_info = auth_info
+            # 为了方便访问，单独设置api_key_id
+            request.ctx.api_key_id = auth_info.id
             
             logger.info(f"身份验证成功: {auth_info.source}:{auth_info.source_id} - {request.method} {request.path}")
             return None

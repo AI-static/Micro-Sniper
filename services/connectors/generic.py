@@ -40,7 +40,7 @@ class GenericConnector(BaseConnector):
             context_id: 上下文ID
         """
         # 初始化一次 session 和 browser context，所有 URL 共享
-        p, browser, context = await self._get_browser_context(context_id)
+        p, browser, context, session = await self._get_browser_context(context_id)
 
         try:
             # 创建信号量来限制并发数
@@ -195,7 +195,7 @@ class GenericConnector(BaseConnector):
         Returns:
             提取结果列表
         """
-        p, browser, context = await self._get_browser_context(context_id)
+        p, browser, context, session = await self._get_browser_context(context_id)
         
         try:
             semaphore = asyncio.Semaphore(concurrency)

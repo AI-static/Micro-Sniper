@@ -69,9 +69,13 @@ def register_routes(app: Sanic):
     from api.routes.image import bp as image_bp
     from api.routes.identity import identity_bp
     from api.routes.connectors import connectors_bp
+    from api.routes.monitor import monitor_bp
+    from api.routes.callback import callback_bp
     app.blueprint(image_bp)
     app.blueprint(identity_bp)
     app.blueprint(connectors_bp)
+    app.blueprint(monitor_bp)
+    app.blueprint(callback_bp)
 
 
 def setup_database(app: Sanic):

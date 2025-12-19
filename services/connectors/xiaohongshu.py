@@ -198,7 +198,7 @@ class XiaohongshuConnector(BaseConnector):
             raise ValueError("未传入登陆的上下文id")
         
         # 初始化一次 session 和 browser context，所有 URL 共享
-        p, browser, context = await self._get_browser_context(context_id)
+        p, browser, context, session = await self._get_browser_context(context_id)
 
         try:
             # 创建信号量来限制并发数
@@ -363,7 +363,7 @@ class XiaohongshuConnector(BaseConnector):
             context_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """发布内容到小红书"""
-        p, browser, context = await self._get_browser_context()
+        p, browser, context, session = await self._get_browser_context()
 
         try:
             page = await context.new_page()
@@ -493,7 +493,7 @@ class XiaohongshuConnector(BaseConnector):
         """
         logger.info(f"[xiaohongshu] Extracting notes from creator: {creator_id}, limit={limit}")
         
-        p, browser, context = await self._get_browser_context()
+        p, browser, context, session = await self._get_browser_context()
         
         try:
             page = await context.new_page()
@@ -611,7 +611,7 @@ class XiaohongshuConnector(BaseConnector):
         Returns:
             笔记详情
         """
-        p, browser, context = await self._get_browser_context(context_id)
+        p, browser, context, session = await self._get_browser_context(context_id)
         
         try:
             semaphore = asyncio.Semaphore(concurrency)
@@ -744,7 +744,7 @@ class XiaohongshuConnector(BaseConnector):
         """
         logger.info(f"[xiaohongshu] Searching for: {keyword}")
         
-        p, browser, context = await self._get_browser_context()
+        p, browser, context, session = await self._get_browser_context()
         
         try:
             page = await context.new_page()

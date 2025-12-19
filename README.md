@@ -1,333 +1,519 @@
-# Aether - 业务适配层服务
+# Micro-Sniper
 
-## 项目简介
+> **One Bot, One Job** - 基于RPA + Agent + IM的矩阵式监控解决方案
 
-Aether 是一个轻量级的业务适配层（Business Adaptation Layer），作为上层业务系统与底层服务之间的桥梁。它不提供具体的服务能力，而是负责：
+## 🎯 商业模式
 
-- **协议转换**：将底层服务的API格式转换为业务系统需要的格式
-- **业务适配**：封装底层接口，添加业务逻辑，满足特定场景需求
-- **服务聚合**：组合多个底层服务，提供统一的业务接口
-- **能力增强**：在基础服务之上添加缓存、限流、监控等增强功能
+Micro-Sniper是一个矩阵式智能监控平台，第一期聚焦三个高价值场景：
 
-### 典型应用场景
+- **Media-Sniper**: 爆款内容实时监控
+- **Shop-Sniper**: 电商竞品价格追踪
+- **Gig-Sniper**: 外包优质订单秒杀
 
-#### 飞书插件场景
-- **底层**：Ezlink提供图片生成API
-- **适配层**：Aether接收飞书的请求，进行参数转换、权限验证、结果缓存等
-- **上层**：飞书插件调用简单的接口完成图片生成
+底层技术统一，仅需更换监控源和Agent Prompt。
 
-#### 企业能力对接
-- 将第三方SaaS服务适配为企业内部标准接口
-- 屏蔽不同供应商的API差异
-- 提供统一的调用方式和错误处理
+## 🏗️ 技术架构
 
-## 项目结构
+### 核心技术栈
+
+```yaml
+Web框架:
+  - Sanic 25.3.0 (高性能异步Web框架)
+  - Gunicorn + Uvicorn (ASGI服务器)
+
+数据存储:
+  - PostgreSQL + Tortoise-ORM (异步数据库)
+  - Redis (会话管理 & 缓存)
+
+AI/自动化:
+  - Agno 2.3.10 (AI Agent框架)
+  - AgentBay SDK (云浏览器自动化)
+  - OpenAI兼容接口
+
+安全工具:
+  - AES-256-GCM加密
+  - Pydantic v2数据验证
+  - Bearer Token认证
 
 ```
-aether/
-├── config/              # 配置管理
-│   ├── settings.py      # 应用配置
-│   └── gunicorn.py      # Gunicorn部署配置
-├── api/                 # API接口层
-│   ├── routes/          # 路由定义
-│   │   └── config.py     # 配置相关API
-│   └── models/          # API数据模型
-│       └── base.py       # 基础响应模型
-├── services/            # 业务服务层（核心）
-│   └── config_service.py # 配置业务逻辑
-├── adapters/            # 第三方服务适配器
-│   └── ezlink_adapter.py # Ezlink服务适配器
-├── models/              # ORM数据模型
-│   └── config.py        # 配置数据模型
-├── utils/               # 工具函数
-│   ├── logger.py        # 日志工具
-│   ├── cache.py         # 缓存工具（Redis客户端）
-│   └── helpers.py       # 辅助函数
-├── app.py               # Sanic应用配置
-├── main.py              # 应用入口
-└── tests/               # 测试目录
+
+### 系统架构图
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Client Layer                         │
+│                    (REST API / WebSocket)                   │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                      API Gateway                            │
+│                 (Authentication & Rate Limit)               │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                 Business Logic Layer                        │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐         │
+│  │ Media-Sniper│  │ Shop-Sniper  │  │ Gig-Sniper  │         │
+│  │   Agent     │  │    Agent     │  │    Agent    │         │
+│  └─────────────┘  └──────────────┘  └─────────────┘         │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                 Connector Service Layer                     │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐         │
+│  │ 小红书连接器 │  │  微信连接器   │  │ 通用连接器   │         │
+│  └─────────────┘  └──────────────┘  └─────────────┘         │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                    Infrastructure                           │
+│  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐         │
+│  │ AgentBay    │  │   Redis      │  │ PostgreSQL  │         │
+│  │ 云浏览器     │  │   缓存       │  │   数据库     │         │
+│  └─────────────┘  └──────────────┘  └─────────────┘         │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## 技术栈
+## 📁 项目结构
 
-- **Web框架**: Sanic (异步Web框架)
-- **配置管理**: Pydantic Settings
-- **缓存**: Redis (同步客户端)
-- **日志**: Loguru
-- **HTTP客户端**: httpx (支持HTTP/2)
-- **ORM**: Tortoise-ORM (PostgreSQL/MySQL)
-- **部署**: Docker + Gunicorn
+```
+Micro-Sniper/
+├── api/                        # API接口层
+│   ├── routes/                # REST API路由
+│   │   ├── connectors.py      # 连接器相关API
+│   │   ├── agent.py           # Agent API
+│   │   └── identity.py        # 身份认证API
+│   └── schema/                # Pydantic数据模型
+│
+├── services/                  # 核心业务服务
+│   ├── connectors/            # 连接器服务（核心）
+│   │   ├── base.py           # 连接器基类
+│   │   ├── connector_service.py # 连接器管理
+│   │   ├── xiaohongshu.py    # 小红书连接器
+│   │   ├── wechat.py         # 微信连接器
+│   │   └── generic.py        # 通用连接器
+│   ├── agent_service.py       # AI Agent服务
+│   ├── identity_service.py    # 身份认证服务
+│   └── image_service.py       # 图像处理服务
+│
+├── models/                     # ORM数据模型
+├── adapters/                   # 第三方服务适配器
+├── middleware/                 # Sanic中间件
+│   ├── auth.py                # 认证中间件
+│   └── cors.py                # CORS中间件
+│
+├── utils/                      # 工具函数
+├── config/                     # 配置管理
+│   └── settings.py            # Pydantic配置
+│
+└── examples/                   # 示例代码
+    └── monitor_example.py     # 监控示例
+```
 
-## 快速开始
+## 🚀 快速开始
 
 ### 环境要求
 - Python 3.11+
-- Redis
-- PostgreSQL/MySQL (可选)
+- PostgreSQL 14+
+- Redis 6+
+- Go 1.21+ (可选，仅MCP服务)
+- Docker & Docker Compose
 
-### 安装依赖
+### 安装部署
 
+1. **克隆项目**
 ```bash
-# 使用Poetry安装
-poetry install
-
-# 或使用pip
-pip install -e .
+git clone https://github.com/your-org/Micro-Sniper.git
+cd Micro-Sniper
 ```
 
-### 配置环境变量
-
-复制环境变量模板：
+2. **环境配置**
 ```bash
+# 复制环境变量模板
 cp .env.example .env
+
+# 编辑配置
+vim .env
 ```
 
-编辑 `.env` 文件：
-```env
-# 应用配置
-APP_NAME=Aether
-APP_PORT=8000
-APP_DEBUG=false
-
-# Redis配置
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=
-
-# 数据库配置（使用ORM时需要）
-DB_URL=postgresql://user:password@localhost:5432/dbname
-
-# Ezlink服务配置
-EZLINK_API_KEY=your_api_key_here
-EZLINK_BASE_URL=https://api.ezlink.com
-```
-
-### 运行服务
-
-开发模式：
+3. **Docker部署（推荐）**
 ```bash
-python main.py
+# 构建并启动所有服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f micro-sniper
 ```
 
-或使用Sanic命令：
+4. **本地开发**
 ```bash
-sanic app:create_app --dev
+# 安装Python依赖
+pip install -r requirements.txt
+
+# 启动PostgreSQL & Redis
+docker-compose up -d postgres redis
+
+# 运行数据库迁移
+python -m db.init
+
+# 启动服务
+python -m app.main
 ```
 
-### 验证服务
+### 验证安装
 
-健康检查：
 ```bash
+# 健康检查
 curl http://localhost:8000/health
+
+# API文档
+open http://localhost:8000/docs
 ```
 
-## API文档
+## 🔌 核心模块使用
 
-### 配置管理API
+### 1. 连接器服务
 
-#### 创建配置
-```http
-POST /api/v1/config
-Content-Type: application/json
+连接器是系统的核心，提供统一的接口来操作不同平台：
 
-{
-    "type_code": "ezlink_config",
-    "key": "image_style",
-    "name": "图片风格配置",
-    "value": {
-        "default_style": "realistic",
-        "size": "1024x1024"
-    },
-    "description": "Ezlink图片生成默认配置",
-    "tags": ["ezlink", "image"]
-}
-```
-
-#### 获取配置
-```http
-GET /api/v1/config?key=image_style
-```
-
-#### 查询配置列表
-```http
-GET /api/v1/config/list?type_code=ezlink_config&page=1&page_size=20
-```
-
-#### 更新配置
-```http
-PUT /api/v1/config/{id}
-Content-Type: application/json
-
-{
-    "value": {
-        "default_style": "anime",
-        "size": "1024x1024"
-    }
-}
-```
-
-#### 删除配置
-```http
-DELETE /api/v1/config/{id}
-```
-
-## 开发指南
-
-### 添加新的适配器
-
-1. 在 `adapters/` 目录下创建适配器文件：
 ```python
-# adapters/your_service_adapter.py
-import httpx
-from utils.logger import logger
-from utils.cache import redis_client
+from services.connectors.connector_service import ConnectorService
 
-class YourServiceAdapter:
-    async def call_api(self, params: dict):
-        # 缓存检查
-        cache_key = f"your_service:{hash(str(params))}"
-        cached = redis_client.get(cache_key)
-        if cached:
-            return cached
-            
-        # 调用API
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.yourservice.com/endpoint",
-                json=params
-            )
-            result = response.json()
-            
-        # 缓存结果
-        redis_client.set(cache_key, result, expire=300)
-        
-        return result
+# 初始化服务
+service = ConnectorService()
+
+# 监控URL变化（Media-Sniper核心）
+async def monitor_viral_content():
+    result = await service.monitor(
+        url="https://www.xiaohongshu.com/explore",
+        platform="xiaohongshu",
+        context_id="user_session_123",
+        check_interval=300,  # 5分钟检查一次
+        webhook_url="https://your-domain.com/webhook/viral-alert"
+    )
+    return result
+
+# 提取内容摘要
+async def extract_content():
+    result = await service.extract(
+        url="https://www.xiaohongshu.com/explore/xxxx",
+        platform="xiaohongshu",
+        extract_type="summary"
+    )
+    return result
+
+# 批量采收用户内容
+async def harvest_user_content():
+    result = await service.harvest(
+        user_id="target_user_123",
+        platform="xiaohongshu",
+        content_types=["note", "video"],
+        limit=100
+    )
+    return result
 ```
 
-2. 在 `services/` 中创建业务服务：
-```python
-# services/your_service.py
-from adapters.your_service_adapter import YourServiceAdapter
+### 2. Agent智能分析
 
-class YourService:
-    def __init__(self):
-        self.adapter = YourServiceAdapter()
+Agent负责内容分析和决策：
+
+```python
+from services.agent_service import AgentService
+
+# 初始化Agent
+agent = AgentService()
+
+# 分析爆款特征
+async def analyze_viral_content(content):
+    prompt = """
+    分析这篇内容为什么可能成为爆款：
+    1. 提取文案逻辑
+    2. 识别情感触点
+    3. 分析视觉元素
+    4. 生成模仿建议
+    """
+    analysis = await agent.analyze(
+        content=content,
+        prompt=prompt,
+        agent_type="media_analyzer"
+    )
+    return analysis
+
+# 生成竞标话术（Gig-Sniper）
+async def generate_proposal(job_description, user_profile):
+    prompt = f"""
+    基于以下信息生成高转化率的竞标话术：
+    - 工作描述: {job_description}
+    - 用户简历: {user_profile}
+    - 要求: 突出技术优势，控制在200字内
+    """
+    proposal = await agent.generate(
+        prompt=prompt,
+        output_format="cover_letter"
+    )
+    return proposal
+```
+
+### 3. 价格监控（Shop-Sniper）
+
+```python
+# 监控竞品价格
+async def monitor_price_change():
+    service = ConnectorService()
     
-    async def process_request(self, data: dict):
-        # 业务逻辑处理
-        adapted_data = self._adapt_params(data)
-        result = await self.adapter.call_api(adapted_data)
-        return self._adapt_response(result)
-```
-
-3. 在 `api/routes/` 中创建路由：
-```python
-from sanic import Blueprint
-from services.your_service import YourService
-
-bp = Blueprint("your_service", url_prefix="/your-service")
-service = YourService()
-
-@bp.post("/process")
-async def process_handler(request):
-    result = await service.process_request(request.json)
-    return {"code": 0, "data": result}
-```
-
-### 日志使用
-
-```python
-from utils.logger import logger
-
-logger.info("普通信息")
-logger.error("错误信息")
-logger.debug("调试信息")
-```
-
-### 缓存使用
-
-```python
-from utils.cache import redis_client
-
-# 设置缓存
-redis_client.set("key", "value", expire=3600)
-
-# 获取缓存
-value = redis_client.get("key")
-
-# 删除缓存
-redis_client.delete("key")
-```
-
-## 部署指南
-
-### Docker部署
-
-构建镜像：
-```bash
-docker build -t aether .
-```
-
-运行容器：
-```bash
-docker run -p 8000:8000 --env-file .env aether
-```
-
-### Gunicorn部署
-
-```bash
-gunicorn -c config/gunicorn.py app:create_app()
-```
-
-### 生产环境配置
-
-1. 设置合适的worker数量：
-```python
-# config/gunicorn.py
-workers = 4  # CPU核心数 * 2
-worker_class = "sanic.worker.GunicornWorker"
-```
-
-2. 配置反向代理（Nginx示例）：
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
+    # 设置价格监控
+    result = await service.monitor(
+        url="https://product-page.com/item-123",
+        platform="generic",
+        check_interval=1800,  # 30分钟
+        triggers={
+            "price_change": True,
+            "price_drop_threshold": 0.1  # 降价10%报警
+        }
+    )
     
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
+    return result
+```
+
+## 📊 数据流设计
+
+### 监控数据流
+
+```
+1. 定时任务触发 → 2. 连接器获取数据 → 3. 数据清洗 → 4. Agent分析 → 5. 规则引擎判断 → 6. 推送报警
+```
+
+### 实时数据流（WebSocket）
+
+```python
+# SSE流式返回
+@app.route("/stream/monitor")
+async def stream_monitor(request):
+    async def event_stream():
+        while True:
+            data = await get_monitoring_data()
+            yield f"data: {json.dumps(data)}\n\n"
+            await asyncio.sleep(1)
+    
+    return stream(event_stream, content_type="text/event-stream")
+```
+
+## 🔐 身份认证
+
+### API Key管理
+
+```python
+from services.identity_service import IdentityService
+
+# 创建API Key
+identity = IdentityService()
+api_key = await identity.create_api_key(
+    user_id="user_123",
+    usage_limit=1000,
+    expires_at=datetime.now() + timedelta(days=30)
+)
+
+# 验证请求
+@app.middleware("request")
+async def authenticate(request):
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    if not await identity.verify_api_key(token):
+        return json({"error": "Unauthorized"}, status=401)
+```
+
+## 🛠️ 扩展开发
+
+### 添加新平台连接器
+
+1. **继承BaseConnector**
+
+```python
+from services.connectors.base import BaseConnector
+
+class TikTokConnector(BaseConnector):
+    platform = "tiktok"
+    
+    async def extract_content(self, url: str, **kwargs):
+        # 实现TikTok特定逻辑
+        await self.page.goto(url)
+        # ...
+        return structured_data
+    
+    async def monitor_changes(self, url: str, **kwargs):
+        # 实现监控逻辑
+        pass
+```
+
+2. **注册连接器**
+
+```python
+# 在connector_service.py中注册
+CONNECTORS = {
+    "xiaohongshu": XiaohongshuConnector,
+    "wechat": WechatConnector,
+    "tiktok": TikTokConnector,  # 新增
 }
 ```
 
-## 最佳实践
+### 自定义Agent
 
-### 1. 适配器设计
-- **单一职责**：每个适配器只对接一个外部服务
-- **统一错误处理**：所有适配器应该有统一的错误处理和重试机制
-- **合理缓存**：对不变或变化缓慢的数据进行缓存
+```python
+from agno import Agent
 
-### 2. 服务层设计
-- **业务逻辑封装**：核心业务逻辑都在服务层实现
-- **事务管理**：使用服务层管理数据库事务
-- **参数验证**：在API层进行基础验证，服务层进行业务验证
+class CustomAgent(Agent):
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="custom_analyzer",
+            instructions="自定义指令",
+            tools=[custom_tool_1, custom_tool_2],
+            **kwargs
+        )
+    
+    async def analyze(self, input_data):
+        # 自定义分析逻辑
+        pass
+```
 
-### 3. 性能优化
-- **连接池**：使用连接池管理数据库和Redis连接
-- **批量操作**：尽可能使用批量操作减少请求次数
-- **异步处理**：使用异步模式提高并发能力
+## 📈 性能优化
 
-## 贡献指南
+### 1. 并发控制
 
-1. Fork 项目
+```python
+# 使用信号量控制并发
+semaphore = asyncio.Semaphore(10)
+
+async def limited_fetch(url):
+    async with semaphore:
+        return await fetch(url)
+```
+
+### 2. 缓存策略
+
+```python
+# Redis缓存
+from aioredis import Redis
+
+redis = Redis()
+
+@cached(ttl=300)  # 5分钟缓存
+async def get_user_profile(user_id):
+    profile = await redis.get(f"profile:{user_id}")
+    if not profile:
+        profile = await fetch_profile(user_id)
+        await redis.setex(f"profile:{user_id}", 300, profile)
+    return profile
+```
+
+### 3. 数据库优化
+
+```python
+# 使用连接池
+from tortoise import Tortoise
+
+await Tortoise.init(
+    db_url="postgresql://user:pass@localhost/db",
+    modules={"models": ["models"]},
+    # 连接池配置
+    minsize=10,
+    maxsize=20
+)
+```
+
+## 🔧 配置说明
+
+### 环境变量
+
+```bash
+# 应用配置
+APP_NAME=Micro-Sniper
+APP_VERSION=1.0.0
+DEBUG=false
+HOST=0.0.0.0
+PORT=8000
+
+# 数据库
+DATABASE_URL=postgresql://user:password@localhost/microsniper
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# AgentBay
+AGENTBAY_API_KEY=your-agentbay-key
+AGENTBAY_ENDPOINT=https://api.agentbay.com
+
+# OpenAI
+OPENAI_API_KEY=your-openai-key
+OPENAI_MODEL=gpt-4-turbo
+
+# 安全
+SECRET_KEY=your-secret-key
+ENCRYPTION_KEY=your-aes-key
+```
+
+## 🧪 测试
+
+### 运行测试
+
+```bash
+# 单元测试
+pytest tests/unit/
+
+# 集成测试
+pytest tests/integration/
+
+# 性能测试
+pytest tests/performance/
+```
+
+### 测试示例
+
+```python
+import pytest
+from services.connectors.xiaohongshu import XiaohongshuConnector
+
+@pytest.mark.asyncio
+async def test_extract_content():
+    connector = XiaohongshuConnector()
+    result = await connector.extract_content(
+        "https://www.xiaohongshu.com/explore/test"
+    )
+    
+    assert result["title"] is not None
+    assert result["content"] is not None
+    assert "likes" in result["metrics"]
+```
+
+## 📜 API文档
+
+完整的API文档请访问：`http://localhost:8000/docs`
+
+### 主要端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/connectors/monitor` | POST | 启动监控任务 |
+| `/connectors/extract` | POST | 提取内容 |
+| `/connectors/harvest` | POST | 批量采收 |
+| `/agent/analyze` | POST | Agent分析 |
+| `/identity/api-keys` | POST | 创建API Key |
+
+## 🤝 贡献指南
+
+1. Fork项目
 2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
 3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
+5. 打开Pull Request
 
-## 许可证
+## 📄 许可证
 
-MIT License
+本项目采用MIT许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+
+## 🙋‍♂️ 支持
+
+- 技术支持：yancyyu@lazymind.vip
+- Bug报告：yancyyu@lazymind.vip
+
+---
+
+**核心价值**：让每个业务场景都有专属的智能监控机器人

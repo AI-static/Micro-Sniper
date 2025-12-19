@@ -27,7 +27,7 @@ class BaseConnector(ABC):
             platform_name: 平台名称，用于日志和会话标识
         """
         self.platform_name = platform_name
-        self.api_key = global_settings.agentbay_api_key
+        self.api_key = global_settings.agentbay.api_key
         if not self.api_key:
             raise ValueError("AGENTBAY_API_KEY is required")
 
