@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from sanic.request import Request
 from sanic_cors import CORS
 from sanic_ext import Extend
+from playwright.async_api import async_playwright
 from config.settings import settings, create_db_config
 from utils.logger import logger
 from tortoise import Tortoise
@@ -53,6 +54,9 @@ def create_app() -> Sanic:
     # 数据库初始化
     setup_database(app)
     
+    # Playwright 初始化
+    setup_playwright(app)
+    
     return app
 
 
@@ -69,12 +73,10 @@ def register_routes(app: Sanic):
     from api.routes.image import bp as image_bp
     from api.routes.identity import identity_bp
     from api.routes.connectors import connectors_bp
-    from api.routes.monitor import monitor_bp
     from api.routes.callback import callback_bp
     app.blueprint(image_bp)
     app.blueprint(identity_bp)
     app.blueprint(connectors_bp)
-    app.blueprint(monitor_bp)
     app.blueprint(callback_bp)
 
 
@@ -87,3 +89,22 @@ def setup_database(app: Sanic):
         await Tortoise.init(config=create_db_config())
         await Tortoise.generate_schemas()
         logger.info(f"✅ 初始化ORM成功")
+
+
+def setup_playwright(app: Sanic):
+    """设置全局的 Playwright 实例"""
+
+    @app.before_server_start
+    async def init_playwright(app: Sanic, loop):
+        """初始化 Playwright"""
+        logger.info("🎭 初始化 Playwright...")
+        app.ctx.playwright = await async_playwright().start()
+        logger.info("✅ Playwright 初始化成功")
+
+    @app.before_server_stop
+    async def cleanup_playwright(app: Sanic, loop):
+        """清理 Playwright 资源"""
+        logger.info("🎭 清理 Playwright 资源...")
+        if hasattr(app.ctx, 'playwright'):
+            await app.ctx.playwright.stop()
+            logger.info("✅ Playwright 资源已清理")

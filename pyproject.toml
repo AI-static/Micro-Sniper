@@ -30,7 +30,7 @@ tortoise-orm = {extras = ["asyncpg"], version = "^0.25.1"}
 openai = "^2.9.0"
 agno = "^2.3.10"
 uvicorn = "^0.38.0"
-wuying-agentbay-sdk = "^0.12.0"
+wuying-agentbay-sdk = "^0.13.1"
 
 [tool.ruff]
 target-version = "py311"

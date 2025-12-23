@@ -30,7 +30,9 @@ class GenericConnector(BaseConnector):
         self,
         urls: List[str],
         concurrency: int = 1,
-        context_id: Optional[str] = None
+        context_id: Optional[str] = None,
+        source: str = "default",
+        source_id: str = "default"
     ):
         """流式提取网站摘要，支持并发
         
@@ -40,7 +42,7 @@ class GenericConnector(BaseConnector):
             context_id: 上下文ID
         """
         # 初始化一次 session 和 browser context，所有 URL 共享
-        p, browser, context, session = await self._get_browser_context(context_id)
+        session = await self._get_browser_session(context_id)
 
         try:
             # 创建信号量来限制并发数
@@ -183,7 +185,9 @@ class GenericConnector(BaseConnector):
         self,
         urls: List[str],
         concurrency: int = 3,
-        context_id: Optional[str] = None
+        context_id: Optional[str] = None,
+        source: str = "default",
+        source_id: str = "default"
     ) -> List[Dict[str, Any]]:
         """获取网页详情
         
@@ -195,7 +199,7 @@ class GenericConnector(BaseConnector):
         Returns:
             提取结果列表
         """
-        p, browser, context, session = await self._get_browser_context(context_id)
+        session = await self._get_browser_session(context_id)
         
         try:
             semaphore = asyncio.Semaphore(concurrency)
@@ -342,7 +346,10 @@ class GenericConnector(BaseConnector):
         self,
         keyword: str,
         limit: int = 20,
-        extract_details: bool = False
+        extract_details: bool = False,
+        context_id: Optional[str] = None,
+        source: str = "default",
+        source_id: str = "default"
     ) -> List[Dict[str, Any]]:
         """通用连接器不支持搜索功能"""
         raise NotImplementedError("GenericConnector does not support search_and_extract")

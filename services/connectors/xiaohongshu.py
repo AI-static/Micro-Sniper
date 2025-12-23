@@ -7,7 +7,7 @@ from playwright.async_api import async_playwright, Page
 
 from .base import BaseConnector
 from utils.logger import logger
-from agentbay.browser.browser_agent import ActOptions
+from agentbay import ActOptions
 from models.connectors import PlatformType
 
 
@@ -16,24 +16,11 @@ class XiaohongshuConnector(BaseConnector):
 
     def __init__(self):
         super().__init__(platform_name=PlatformType.XIAOHONGSHU)
+
+    def _build_session_key(self, source: str = "default", source_id: str = "default") -> str:
+        """构建小红书的 session key"""
+        return f"xiaohongshu:{source}:{source_id}"
     
-        
-    def _get_summary_config(self) -> Dict[str, Any]:
-        """获取小红书摘要提取的配置"""
-        return {
-            "title_selectors": [
-                ".title",
-                "h1",
-                "h2",
-                "[class*='title']"
-            ],
-            "content_selectors": [
-                ".desc",
-                ".content",
-                ".summary",
-                "[class*='desc']"
-            ]
-        }
 
     # ==================== 私有方法 ====================
 
@@ -191,6 +178,8 @@ class XiaohongshuConnector(BaseConnector):
         urls: List[str],
         concurrency: int = 1,
         context_id: Optional[str] = None,
+        source: str = "default",
+        source_id: str = "default",
         extra: Optional[Dict[str, Any]] = None
     ):
         """流式提取小红书帖子详情并总结分析（使用Agent进行分析），支持并发"""
@@ -198,7 +187,7 @@ class XiaohongshuConnector(BaseConnector):
             raise ValueError("未传入登陆的上下文id")
         
         # 初始化一次 session 和 browser context，所有 URL 共享
-        p, browser, context, session = await self._get_browser_context(context_id)
+        session = await self._get_browser_session(context_id)
 
         try:
             # 创建信号量来限制并发数
@@ -218,7 +207,7 @@ class XiaohongshuConnector(BaseConnector):
 
                         # 关闭可能出现的弹窗
                         try:
-                            agent_browser = self.session.browser.agent
+                            agent_browser = session.browser.agent
                             await agent_browser.act_async(
                                 ActOptions(action="如果有弹窗或登录提示，关闭它们，然后滚动到笔记底部查看完整内容。"),
                                 page=page
@@ -268,7 +257,7 @@ class XiaohongshuConnector(BaseConnector):
                             analysis_result = ""
                             try:
                                 # 使用session中的browser的agent
-                                analysis_agent = self.session.browser.agent
+                                analysis_agent = session.browser.agent
                                 # 生成分析结果
                                 response = await analysis_agent.run(prompt)
                                 analysis_result = response if isinstance(response, str) else str(response)
@@ -360,10 +349,12 @@ class XiaohongshuConnector(BaseConnector):
             content_type: str = "text",
             images: Optional[List[str]] = None,
             tags: Optional[List[str]] = None,
-            context_id: Optional[str] = None
+            context_id: Optional[str] = None,
+            source: str = "default",
+            source_id: str = "default"
     ) -> Dict[str, Any]:
         """发布内容到小红书"""
-        p, browser, context, session = await self._get_browser_context()
+        session = await self._get_browser_session()
 
         try:
             page = await context.new_page()
@@ -379,7 +370,7 @@ class XiaohongshuConnector(BaseConnector):
                 instruction = f"发布文字笔记：内容「{content}」，添加标签：{', '.join(tags or [])}"
 
             # 执行发布操作
-            agent = self.session.browser.agent
+            agent = session.browser.agent
             success = await agent.act_async(
                 ActOptions(action=instruction),
                 page=page
@@ -405,7 +396,9 @@ class XiaohongshuConnector(BaseConnector):
             self,
             user_id: str,
             limit: Optional[int] = None,
-            context_id: Optional[str] = None
+            context_id: Optional[str] = None,
+            source: str = "default",
+            source_id: str = "default"
     ) -> List[Dict[str, Any]]:
         """采收用户的所有笔记
 
@@ -479,7 +472,9 @@ class XiaohongshuConnector(BaseConnector):
         creator_id: str,
         limit: Optional[int] = None,
         extract_details: bool = False,
-        context_id: Optional[str] = None
+        context_id: Optional[str] = None,
+        source: str = "default",
+        source_id: str = "default"
     ) -> List[Dict[str, Any]]:
         """通过创作者ID提取其笔记
         
@@ -493,7 +488,7 @@ class XiaohongshuConnector(BaseConnector):
         """
         logger.info(f"[xiaohongshu] Extracting notes from creator: {creator_id}, limit={limit}")
         
-        p, browser, context, session = await self._get_browser_context()
+        session = await self._get_browser_session()
         
         try:
             page = await context.new_page()
@@ -600,7 +595,9 @@ class XiaohongshuConnector(BaseConnector):
         self,
         urls: List[str],
         concurrency: int = 3,
-        context_id: Optional[str] = None
+        context_id: Optional[str] = None,
+        source: str = "default",
+        source_id: str = "default"
     ) -> List[Dict[str, Any]]:
         """获取单个笔记的详情（使用evaluate提取结构化数据）
         
@@ -611,7 +608,7 @@ class XiaohongshuConnector(BaseConnector):
         Returns:
             笔记详情
         """
-        p, browser, context, session = await self._get_browser_context(context_id)
+        session = await self._get_browser_session(context_id)
         
         try:
             semaphore = asyncio.Semaphore(concurrency)
@@ -730,7 +727,9 @@ class XiaohongshuConnector(BaseConnector):
         keyword: str,
         limit: int = 20,
         extract_details: bool = True,
-        context_id: Optional[str] = None
+        context_id: Optional[str] = None,
+        source: str = "default",
+        source_id: str = "default"
     ) -> List[Dict[str, Any]]:
         """搜索并提取小红书内容
         
@@ -744,7 +743,7 @@ class XiaohongshuConnector(BaseConnector):
         """
         logger.info(f"[xiaohongshu] Searching for: {keyword}")
         
-        p, browser, context, session = await self._get_browser_context()
+        session = await self._get_browser_session()
         
         try:
             page = await context.new_page()

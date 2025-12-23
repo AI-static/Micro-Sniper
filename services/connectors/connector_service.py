@@ -13,13 +13,19 @@ from typing import Dict, Any, List, Optional, AsyncGenerator
 from .xiaohongshu import XiaohongshuConnector
 from .wechat import WechatConnector
 from .generic import GenericConnector
+from .session import session_manager
 from utils.logger import logger
 from models.connectors import PlatformType, LoginMethod
-from services.config_service import ConfigService
 
 
 class ConnectorService:
-    """连接器服务 - 统一的连接器管理和调度中心"""
+    """连接器服务 - 统一的连接器管理和调度中心
+    
+    设计原则：
+    - 不再管理 session_manager，使用全局单例
+    - connector 实例按平台缓存，不再按 source:source_id
+    - source/source_id 由各 connector 在调用时自行处理
+    """
 
     # 平台标识映射
     PLATFORM_IDENTIFIERS = {
@@ -30,7 +36,7 @@ class ConnectorService:
     def __init__(self):
         """初始化连接器服务"""
         self._connectors = {}
-        logger.info("[ConnectorService] Initialized")
+        logger.info("[ConnectorService] Initialized (using global session_manager)")
 
     def _get_connector(self, platform: PlatformType):
         """获取或创建平台连接器
@@ -48,21 +54,17 @@ class ConnectorService:
         if isinstance(platform, str):
             platform = PlatformType(platform)
         
-        platform_key = str(platform)
-        
-        if platform_key not in self._connectors:
+        if platform not in self._connectors:
             if platform == PlatformType.XIAOHONGSHU:
-                self._connectors[platform_key] = XiaohongshuConnector()
+                self._connectors[platform] = XiaohongshuConnector()
             elif platform == PlatformType.WECHAT:
-                self._connectors[platform_key] = WechatConnector()
+                self._connectors[platform] = WechatConnector()
             elif platform == PlatformType.GENERIC:
-                self._connectors[platform_key] = GenericConnector()
+                self._connectors[platform] = GenericConnector()
             else:
                 raise ValueError(f"不支持的平台: {platform}")
 
-            logger.info(f"[ConnectorService] Created {platform_key} connector")
-
-        return self._connectors[platform_key]
+        return self._connectors[platform]
 
     def _detect_platform(self, url: str) -> PlatformType:
         """自动检测URL所属平台
@@ -85,6 +87,8 @@ class ConnectorService:
         self,
         urls: List[str],
         platform: PlatformType,
+        source: str = "default",
+        source_id: str = "default",
         concurrency: int = 10,
         context_id: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
@@ -93,6 +97,8 @@ class ConnectorService:
         Args:
             urls: 要提取的URL列表
             platform: 平台名称（必须指定）
+            source: 系统标识
+            source_id: 用户标识
             concurrency: 并发数量
             context_id: 上下文ID，用于保持登录态
 
@@ -101,7 +107,7 @@ class ConnectorService:
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Streaming extraction from {platform}, {len(urls)} URLs, context_id={context_id}")
+            logger.info(f"[ConnectorService] Streaming extraction from {platform}, {len(urls)} URLs, source={source}, source_id={source_id}")
             
             # 发送开始事件
             yield {
@@ -122,7 +128,7 @@ class ConnectorService:
             # 检查 connector 是否有 extract_summary_stream 方法
             if hasattr(connector, 'extract_summary_stream'):
                 # 直接使用 connector 的流式方法
-                async for result in connector.extract_summary_stream(urls, concurrency, context_id):
+                async for result in connector.extract_summary_stream(urls, concurrency, context_id, source, source_id):
                     processed += 1
                     if result.get('success'):
                         success_count += 1
@@ -185,6 +191,8 @@ class ConnectorService:
         self,
         urls: List[str],
         platform: PlatformType,
+        source: str = "default",
+        source_id: str = "default",
         context_id: Optional[str] = None,
         concurrency: int = 3,
     ) -> List[Dict[str, Any]]:
@@ -192,7 +200,9 @@ class ConnectorService:
 
         Args:
             urls: 要提取的URL列表
-            platform: 平台名称，如不指定则自动检测
+            platform: 平台名称
+            source: 系统标识
+            source_id: 用户标识
             concurrency: 并发数
             context_id: 上下文ID，用于保持登录态
 
@@ -200,14 +210,11 @@ class ConnectorService:
             提取结果列表，每个元素包含 url、success、data 等字段
         """
         try:
-            results = []
-
-            # 指定平台
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Getting note details for {len(urls)} URLs from {platform}, context_id={context_id}")
+            logger.info(f"[ConnectorService] Getting note details for {len(urls)} URLs from {platform}, source={source}, source_id={source_id}")
                 
             # 调用 get_note_detail 方法
-            results = await connector.get_note_detail(urls, concurrency=concurrency, context_id=context_id)
+            results = await connector.get_note_detail(urls, concurrency=concurrency, context_id=context_id, source=source, source_id=source_id)
 
             success_count = sum(1 for r in results if r.get("success"))
             logger.info(f"[ConnectorService] Get note details completed: {success_count}/{len(results)} successful")
@@ -215,13 +222,16 @@ class ConnectorService:
             return results
 
         except Exception as e:
-            logger.error(f"[ConnectorService] Get note details error: {e}")
+            import traceback
+            logger.error(f"[ConnectorService] Get note details error: {traceback.format_exc()}")
             raise
 
     async def harvest_user_content(
         self,
         platform: str | PlatformType,
         user_id: str,
+        source: str = "default",
+        source_id: str = "default",
         limit: Optional[int] = None,
         context_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
@@ -230,6 +240,8 @@ class ConnectorService:
         Args:
             platform: 平台名称
             user_id: 用户ID或账号标识
+            source: 系统标识
+            source_id: 用户标识
             limit: 限制数量
             context_id: 上下文ID，用于保持登录态
 
@@ -238,9 +250,9 @@ class ConnectorService:
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Harvesting user content from {platform}, user={user_id}, limit={limit}, context_id={context_id}")
+            logger.info(f"[ConnectorService] Harvesting user content from {platform}, user={user_id}, limit={limit}, source={source}, source_id={source_id}")
             
-            result = await connector.harvest_user_content(user_id, limit, context_id)
+            result = await connector.harvest_user_content(user_id, limit, context_id, source, source_id)
 
             logger.info(f"[ConnectorService] Harvested {len(result)} items")
             return result
@@ -256,6 +268,8 @@ class ConnectorService:
         self,
         platform: str | PlatformType,
         content: str,
+        source: str = "default",
+        source_id: str = "default",
         content_type: str = "text",
         images: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
@@ -266,6 +280,8 @@ class ConnectorService:
         Args:
             platform: 平台名称
             content: 内容文本
+            source: 系统标识
+            source_id: 用户标识
             content_type: 内容类型 (text/image/video)
             images: 图片URL列表
             tags: 标签列表
@@ -276,9 +292,9 @@ class ConnectorService:
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Publishing content to {platform}, type={content_type}, context_id={context_id}")
+            logger.info(f"[ConnectorService] Publishing content to {platform}, type={content_type}, source={source}, source_id={source_id}")
 
-            result = await connector.publish_content(content, content_type, images, tags, context_id)
+            result = await connector.publish_content(content, content_type, images, tags, context_id, source, source_id)
 
             status = "successful" if result.get("success") else "failed"
             logger.info(f"[ConnectorService] Publish {status}")
@@ -296,6 +312,8 @@ class ConnectorService:
         self,
         platform: str | PlatformType,
         creator_id: str,
+        source: str = "default",
+        source_id: str = "default",
         limit: Optional[int] = None,
         extract_details: bool = False,
         context_id: Optional[str] = None
@@ -305,6 +323,8 @@ class ConnectorService:
         Args:
             platform: 平台名称
             creator_id: 创作者ID
+            source: 系统标识
+            source_id: 用户标识
             limit: 限制数量
             extract_details: 是否提取详情
             context_id: 上下文ID，用于保持登录态
@@ -314,13 +334,15 @@ class ConnectorService:
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Extracting by creator ID from {platform}, creator={creator_id}, context_id={context_id}")
+            logger.info(f"[ConnectorService] Extracting by creator ID from {platform}, creator={creator_id}, source={source}, source_id={source_id}")
             
             results = await connector.extract_by_creator_id(
                 creator_id=creator_id,
                 limit=limit,
                 extract_details=extract_details,
-                context_id=context_id
+                context_id=context_id,
+                source=source,
+                source_id=source_id
             )
             
             logger.info(f"[ConnectorService] Extracted {len(results)} items by creator ID")
@@ -334,6 +356,8 @@ class ConnectorService:
         self,
         platform: str | PlatformType,
         keyword: str,
+        source: str = "default",
+        source_id: str = "default",
         limit: int = 20,
         extract_details: bool = False,
         context_id: Optional[str] = None
@@ -343,6 +367,8 @@ class ConnectorService:
         Args:
             platform: 平台名称
             keyword: 搜索关键词
+            source: 系统标识
+            source_id: 用户标识
             limit: 限制数量
             extract_details: 是否提取详情
             context_id: 上下文ID，用于保持登录态
@@ -352,13 +378,15 @@ class ConnectorService:
         """
         try:
             connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Searching and extracting from {platform}, keyword={keyword}, context_id={context_id}")
+            logger.info(f"[ConnectorService] Searching and extracting from {platform}, keyword={keyword}, source={source}, source_id={source_id}")
             
             results = await connector.search_and_extract(
                 keyword=keyword,
                 limit=limit,
                 extract_details=extract_details,
-                context_id=context_id
+                context_id=context_id,
+                source=source,
+                source_id=source_id
             )
             
             logger.info(f"[ConnectorService] Found {len(results)} search results")
@@ -409,20 +437,27 @@ class ConnectorService:
             logger.error(f"[ConnectorService] Login error: {e}")
             raise
 
-    def cleanup(self):
+    async def cleanup(self):
         """清理所有连接器资源"""
         logger.info("[ConnectorService] Cleaning up all connectors")
-        for platform, connector in self._connectors.items():
+        
+        # 清理所有连接器
+        for key, connector in self._connectors.items():
             try:
-                connector.cleanup()
+                if hasattr(connector, 'cleanup'):
+                    connector.cleanup()
             except Exception as e:
-                logger.error(f"[ConnectorService] Error cleaning up {platform}: {e}")
+                logger.error(f"[ConnectorService] Error cleaning up connector {key}: {e}")
 
         self._connectors.clear()
 
-    def __del__(self):
-        """析构时自动清理"""
-        self.cleanup()
+    async def __aenter__(self):
+        """异步上下文管理器入口"""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """异步上下文管理器退出"""
+        await self.cleanup()
 
 
 # 全局服务实例
