@@ -2,14 +2,14 @@
 
 [[package]]
 name = "agno"
-version = "2.3.16"
+version = "2.3.20"
 description = "Agno: a lightweight library for building Multi-Agent Systems"
 optional = false
 python-versions = "<4,>=3.7"
 groups = ["main"]
 files = [
-    {file = "agno-2.3.16-py3-none-any.whl", hash = "sha256:b8af29bd0404f64a23369470fd900d3226e1d96790974c5ff3cb9552c2880ea8"},
-    {file = "agno-2.3.16.tar.gz", hash = "sha256:bce48925fe6bddcf6c91256faa44c532256c00727f593d320eb3c5e5aaf9efa8"},
+    {file = "agno-2.3.20-py3-none-any.whl", hash = "sha256:88af37fe08ee860a8f89f62e940b969a3074e0a779bb11d104710718cb78631d"},
+    {file = "agno-2.3.20.tar.gz", hash = "sha256:13fced87717da85e00fbc4f9571e82fab390376d3c7e92458a7e2e998dc950c6"},
 ]
 
 [package.dependencies]
@@ -56,7 +56,7 @@ crawl4ai = ["crawl4ai (>=0.6.3)"]
 csv = ["aiofiles"]
 daytona = ["daytona"]
 ddg = ["ddgs"]
-dev = ["PyJWT", "fastapi", "mcp", "mypy (==1.18.2)", "openai", "pytest", "pytest-asyncio", "pytest-cov", "pytest-mock", "ruff (==0.14.3)", "timeout-decorator", "types-aiofiles", "types-pyyaml", "uvicorn"]
+dev = ["PyJWT", "fakeredis", "fastapi", "mcp", "mypy (==1.18.2)", "openai", "pytest", "pytest-asyncio", "pytest-cov", "pytest-mock", "ruff (==0.14.3)", "timeout-decorator", "types-aiofiles", "types-pyyaml", "uvicorn"]
 docker = ["agno-infra[docker]"]
 docx = ["python-docx"]
 duckdb = ["duckdb"]
@@ -481,14 +481,14 @@ trio = ["trio (>=0.31.0) ; python_version < \"3.10\"", "trio (>=0.32.0) ; python
 
 [[package]]
 name = "apscheduler"
-version = "3.11.1"
+version = "3.11.2"
 description = "In-process task scheduler with Cron-like capabilities"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "apscheduler-3.11.1-py3-none-any.whl", hash = "sha256:6162cb5683cb09923654fa9bdd3130c4be4bfda6ad8990971c9597ecd52965d2"},
-    {file = "apscheduler-3.11.1.tar.gz", hash = "sha256:0db77af6400c84d1747fe98a04b8b58f0080c77d11d338c4f507a9752880f221"},
+    {file = "apscheduler-3.11.2-py3-none-any.whl", hash = "sha256:ce005177f741409db4e4dd40a7431b76feb856b9dd69d57e0da49d6715bfd26d"},
+    {file = "apscheduler-3.11.2.tar.gz", hash = "sha256:2a9966b052ec805f020c8c4c3ae6e6a06e24b1bf19f2e11d91d8cca0473eef41"},
 ]
 
 [package.dependencies]
@@ -502,7 +502,7 @@ mongodb = ["pymongo (>=3.0)"]
 redis = ["redis (>=3.0)"]
 rethinkdb = ["rethinkdb (>=2.4.0)"]
 sqlalchemy = ["sqlalchemy (>=1.4)"]
-test = ["APScheduler[etcd,mongodb,redis,rethinkdb,sqlalchemy,tornado,zookeeper]", "PySide6 ; platform_python_implementation == \"CPython\" and python_version < \"3.14\"", "anyio (>=4.5.2)", "gevent ; python_version < \"3.14\"", "pytest", "pytz", "twisted ; python_version < \"3.14\""]
+test = ["APScheduler[etcd,mongodb,redis,rethinkdb,sqlalchemy,tornado,zookeeper]", "PySide6 ; platform_python_implementation == \"CPython\" and python_version < \"3.14\"", "anyio (>=4.5.2)", "gevent ; python_version < \"3.14\"", "pytest", "pytest-timeout", "pytz", "twisted ; python_version < \"3.14\""]
 tornado = ["tornado (>=4.3)"]
 twisted = ["twisted"]
 zookeeper = ["kazoo"]
@@ -2735,14 +2735,14 @@ nb = ["ipykernel (>=6.29.5)", "ipywidgets (>=8.1.8)", "jupyter (>=1.1.1)", "jupy
 
 [[package]]
 name = "typer"
-version = "0.20.0"
+version = "0.20.1"
 description = "Typer, build great CLIs. Easy to code. Based on Python type hints."
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "typer-0.20.0-py3-none-any.whl", hash = "sha256:5b463df6793ec1dca6213a3cf4c0f03bc6e322ac5e16e13ddd622a889489784a"},
-    {file = "typer-0.20.0.tar.gz", hash = "sha256:1aaf6494031793e4876fb0bacfa6a912b551cf43c1e63c800df8b1a866720c37"},
+    {file = "typer-0.20.1-py3-none-any.whl", hash = "sha256:4b3bde918a67c8e03d861aa02deca90a95bbac572e71b1b9be56ff49affdb5a8"},
+    {file = "typer-0.20.1.tar.gz", hash = "sha256:68585eb1b01203689c4199bc440d6be616f0851e9f0eb41e4a778845c5a0fd5b"},
 ]
 
 [package.dependencies]
@@ -3103,14 +3103,14 @@ dev = ["black (>=19.3b0) ; python_version >= \"3.6\"", "pytest (>=4.6.2)"]
 
 [[package]]
 name = "wuying-agentbay-sdk"
-version = "0.12.0"
+version = "0.13.1"
 description = "Python SDK for interacting with the Wuying AgentBay cloud runtime environment"
 optional = false
 python-versions = "<4.0,>=3.10"
 groups = ["main"]
 files = [
-    {file = "wuying_agentbay_sdk-0.12.0-py3-none-any.whl", hash = "sha256:ea9c929669578468949b6e71370f04e2f720e51b2b5d9272bf97613fb803218a"},
-    {file = "wuying_agentbay_sdk-0.12.0.tar.gz", hash = "sha256:90f3395f24864b5e9ce3b2599ec48ccdbe6e544df31f124faf218ab22334bf3a"},
+    {file = "wuying_agentbay_sdk-0.13.1-py3-none-any.whl", hash = "sha256:907979b6b38fa31e2c4f1d2ecfecf6f9cb2ad33d43f0bd631b372704ce9957ec"},
+    {file = "wuying_agentbay_sdk-0.13.1.tar.gz", hash = "sha256:2f28a40648caf28c70afdd6dccaef56191f11197818aed919539d79e601db256"},
 ]
 
 [package.dependencies]
@@ -3272,4 +3272,4 @@ propcache = ">=0.2.1"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "ba944e06a05145a817da3181e892009b48382ff68f4b702d83ff13dd01484e31"
+content-hash = "08fce9fe9f631cd99d7667edf6eb90ae4361a50544f44fb5e9e59e55e6eb6d74"
