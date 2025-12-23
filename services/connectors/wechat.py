@@ -149,15 +149,14 @@ class WechatConnector(BaseConnector):
             raise ValueError("未输入urls")
         
         from .session import session_manager
-        
+
         # 获取或创建 session
         session = await session_manager.get_or_create_session(
             key=self._build_session_key(source, source_id)
         )
         endpoint_url = session.browser.get_endpoint_url()
         
-        p = session_manager.playwright
-        browser = await p.chromium.connect_over_cdp(endpoint_url)
+        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
         context = browser.contexts[0]
         
         try:

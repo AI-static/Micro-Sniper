@@ -39,7 +39,6 @@ class Session:
         self.agent_bay = AsyncAgentBay(api_key=api_key)
         self.sessions: Dict[str, Any] = {}
         self.locks: Dict[str, asyncio.Lock] = {}
-        self.playwright = None
         self._initialized = True
 
     async def get_or_create_session(

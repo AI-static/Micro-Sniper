@@ -12,6 +12,7 @@ from agentbay import ExtractOptions, CreateSessionParams, BrowserContext, Browse
 from config.settings import global_settings
 from utils.logger import logger
 import re
+from sanic import Sanic
 
 
 class BaseConnector(ABC):
@@ -30,6 +31,10 @@ class BaseConnector(ABC):
             platform_name: 平台名称，用于日志和会话标识
         """
         self.platform_name = platform_name
+
+    @property
+    def playwright(self):
+        return Sanic.get_app().ctx.playwright
 
     def get_locale(self) -> List[str]:
         """获取浏览器语言设置，子类可重写"""
@@ -141,9 +146,8 @@ class BaseConnector(ABC):
             is_logged_in = False
             
             page = None
-            p = session_manager.playwright
             try:
-                browser = await p.chromium.connect_over_cdp(endpoint_url)
+                browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
                 context_p = browser.contexts[0] if browser.contexts else await browser.new_context()
                 page = await context_p.new_page()
 

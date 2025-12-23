@@ -99,7 +99,6 @@ def setup_playwright(app: Sanic):
         """初始化 Playwright"""
         logger.info("🎭 初始化 Playwright...")
         app.ctx.playwright = await async_playwright().start()
-        logger.info("✅ Playwright 初始化成功")
 
     @app.before_server_stop
     async def cleanup_playwright(app: Sanic, loop):
