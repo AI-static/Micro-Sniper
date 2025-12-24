@@ -59,8 +59,7 @@ async def extract_summary(request: Request):
             platform=data.platform,
             source=source,
             source_id=source_id,
-            concurrency=data.concurrency,
-            context_id=data.context_id
+            concurrency=data.concurrency
         ):
             await response.write(f"data: {json_lib.dumps(event, ensure_ascii=False)}\n\n")
 
@@ -89,8 +88,7 @@ async def harvest_content(request: Request):
             user_id=data.user_id,
             source=source,
             source_id=source_id,
-            limit=data.limit,
-            context_id=data.context_id
+            limit=data.limit
         )
 
         return json(BaseResponse(
@@ -142,8 +140,7 @@ async def publish_content(request: Request):
             source_id=source_id,
             content_type=data.content_type,
             images=data.images or [],
-            tags=data.tags or [],
-            context_id=data.context_id
+            tags=data.tags or []
         )
 
         return json(BaseResponse(
@@ -295,8 +292,7 @@ async def get_note_detail(request: Request):
             urls=data.urls,
             platform=data.platform,
             source=source,
-            source_id=source_id,
-            context_id=data.context_id
+            source_id=source_id
         )
         
         # 统计结果
@@ -354,9 +350,7 @@ async def extract_by_creator(request: Request):
             creator_id=data.creator_id,
             source=source,
             source_id=source_id,
-            limit=data.limit,
-            extract_details=data.extract_details,
-            context_id=data.context_id
+            limit=data.limit
         )
         
         return json(BaseResponse(
@@ -406,9 +400,7 @@ async def search_and_extract(request: Request):
             keyword=data.keyword,
             source=source,
             source_id=source_id,
-            limit=data.limit,
-            extract_details=data.extract_details,
-            context_id=data.context_id
+            limit=data.limit
         )
         
         return json(BaseResponse(

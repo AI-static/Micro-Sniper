@@ -8,6 +8,7 @@ from playwright.async_api import Page
 from .base import BaseConnector
 from utils.logger import logger
 from models.connectors import PlatformType
+from agentbay import CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
 
 
 class GenericConnector(BaseConnector):
@@ -26,11 +27,39 @@ class GenericConnector(BaseConnector):
             results.append(result)
         return results
 
+    async def _get_browser_session(
+        self,
+        source: str = "default",
+        source_id: str = "default"
+    ):
+        """获取 browser session"""
+        # 使用 context 创建 session
+        session_result = await self.agent_bay.create(
+            CreateSessionParams(
+                image_id="browser_latest"
+            )
+        )
+
+        if not session_result.success:
+            raise RuntimeError(f"Failed to create session: {session_result.error_message}")
+
+        session = session_result.session
+
+        # 初始化浏览器
+        ok = await session.browser.initialize(BrowserOption(
+            screen=BrowserScreen(width=1920, height=1080)),
+        )
+
+        if not ok:
+            await self.agent_bay.delete(session, sync_context=False)
+            raise RuntimeError("Failed to initialize browser")
+
+        return session
+
     async def extract_summary_stream(
         self,
         urls: List[str],
         concurrency: int = 1,
-        context_id: Optional[str] = None,
         source: str = "default",
         source_id: str = "default"
     ):
@@ -39,10 +68,13 @@ class GenericConnector(BaseConnector):
         Args:
             urls: URL列表
             concurrency: 并发数
-            context_id: 上下文ID
         """
         # 初始化一次 session 和 browser context，所有 URL 共享
-        session = await self._get_browser_session(context_id)
+        session = await self._get_browser_session(source, source_id)
+        endpoint_url = await session.browser.get_endpoint_url()
+        
+        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
+        context = browser.contexts[0]
 
         try:
             # 创建信号量来限制并发数
@@ -177,15 +209,12 @@ class GenericConnector(BaseConnector):
                 yield result
 
         finally:
-            # 所有 URL 处理完后关闭 browser
-            await browser.close()
-            await p.stop()
+            await self.agent_bay.delete(session, sync_context=False)
 
     async def get_note_detail(
         self,
         urls: List[str],
         concurrency: int = 3,
-        context_id: Optional[str] = None,
         source: str = "default",
         source_id: str = "default"
     ) -> List[Dict[str, Any]]:
@@ -194,12 +223,15 @@ class GenericConnector(BaseConnector):
         Args:
             urls: URL列表
             concurrency: 并发数
-            context_id: 上下文ID
             
         Returns:
             提取结果列表
         """
-        session = await self._get_browser_session(context_id)
+        session = await self._get_browser_session(source, source_id)
+        endpoint_url = await session.browser.get_endpoint_url()
+        
+        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
+        context = browser.contexts[0]
         
         try:
             semaphore = asyncio.Semaphore(concurrency)
@@ -328,8 +360,7 @@ class GenericConnector(BaseConnector):
             results = await asyncio.gather(*tasks)
             
         finally:
-            await browser.close()
-            await p.stop()
+            await self.agent_bay.delete(session, sync_context=False)
         
         return results
 
@@ -347,7 +378,6 @@ class GenericConnector(BaseConnector):
         keyword: str,
         limit: int = 20,
         extract_details: bool = False,
-        context_id: Optional[str] = None,
         source: str = "default",
         source_id: str = "default"
     ) -> List[Dict[str, Any]]:

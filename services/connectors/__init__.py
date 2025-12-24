@@ -38,7 +38,7 @@ from .base import BaseConnector
 from .xiaohongshu import XiaohongshuConnector
 from .wechat import WechatConnector
 from .generic import GenericConnector
-from .connector_service import ConnectorService, connector_service
+from services.connector_service import ConnectorService, connector_service
 
 __all__ = [
     # 基类
