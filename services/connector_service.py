@@ -10,19 +10,18 @@
 
 from typing import Dict, Any, List, Optional, AsyncGenerator
 
-from .xiaohongshu import XiaohongshuConnector
-from .wechat import WechatConnector
-from .generic import GenericConnector
-from .session import session_manager
+from services.connectors.xiaohongshu import XiaohongshuConnector
+from services.connectors.wechat import WechatConnector
+from services.connectors.generic import GenericConnector
 from utils.logger import logger
 from models.connectors import PlatformType, LoginMethod
+from agentbay import CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
 
 
 class ConnectorService:
     """连接器服务 - 统一的连接器管理和调度中心
     
     设计原则：
-    - 不再管理 session_manager，使用全局单例
     - connector 实例按平台缓存，不再按 source:source_id
     - source/source_id 由各 connector 在调用时自行处理
     """
@@ -36,7 +35,6 @@ class ConnectorService:
     def __init__(self):
         """初始化连接器服务"""
         self._connectors = {}
-        logger.info("[ConnectorService] Initialized (using global session_manager)")
 
     def _get_connector(self, platform: PlatformType):
         """获取或创建平台连接器
@@ -89,8 +87,7 @@ class ConnectorService:
         platform: PlatformType,
         source: str = "default",
         source_id: str = "default",
-        concurrency: int = 10,
-        context_id: Optional[str] = None
+        concurrency: int = 10
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """流式提取URL内容摘要
 
@@ -100,7 +97,6 @@ class ConnectorService:
             source: 系统标识
             source_id: 用户标识
             concurrency: 并发数量
-            context_id: 上下文ID，用于保持登录态
 
         Yields:
             提取结果字典，包含 url、success、data 等字段
@@ -117,8 +113,7 @@ class ConnectorService:
                     'urls': urls,
                     'platform': platform,
                     'url_count': len(urls),
-                    'concurrency': concurrency,
-                    'context_id': context_id
+                    'concurrency': concurrency
                 }
             }
             
@@ -128,7 +123,7 @@ class ConnectorService:
             # 检查 connector 是否有 extract_summary_stream 方法
             if hasattr(connector, 'extract_summary_stream'):
                 # 直接使用 connector 的流式方法
-                async for result in connector.extract_summary_stream(urls, concurrency, context_id, source, source_id):
+                async for result in connector.extract_summary_stream(urls, concurrency, source, source_id):
                     processed += 1
                     if result.get('success'):
                         success_count += 1
@@ -193,7 +188,6 @@ class ConnectorService:
         platform: PlatformType,
         source: str = "default",
         source_id: str = "default",
-        context_id: Optional[str] = None,
         concurrency: int = 3,
     ) -> List[Dict[str, Any]]:
         """获取笔记/文章详情（快速提取，不使用Agent）
@@ -204,7 +198,6 @@ class ConnectorService:
             source: 系统标识
             source_id: 用户标识
             concurrency: 并发数
-            context_id: 上下文ID，用于保持登录态
 
         Returns:
             提取结果列表，每个元素包含 url、success、data 等字段
@@ -214,7 +207,7 @@ class ConnectorService:
             logger.info(f"[ConnectorService] Getting note details for {len(urls)} URLs from {platform}, source={source}, source_id={source_id}")
                 
             # 调用 get_note_detail 方法
-            results = await connector.get_note_detail(urls, concurrency=concurrency, context_id=context_id, source=source, source_id=source_id)
+            results = await connector.get_note_detail(urls, concurrency=concurrency, source=source, source_id=source_id)
 
             success_count = sum(1 for r in results if r.get("success"))
             logger.info(f"[ConnectorService] Get note details completed: {success_count}/{len(results)} successful")
@@ -232,8 +225,7 @@ class ConnectorService:
         user_id: str,
         source: str = "default",
         source_id: str = "default",
-        limit: Optional[int] = None,
-        context_id: Optional[str] = None
+        limit: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """采收用户/账号的所有内容
 
@@ -243,7 +235,6 @@ class ConnectorService:
             source: 系统标识
             source_id: 用户标识
             limit: 限制数量
-            context_id: 上下文ID，用于保持登录态
 
         Returns:
             内容列表
@@ -252,7 +243,7 @@ class ConnectorService:
             connector = self._get_connector(platform)
             logger.info(f"[ConnectorService] Harvesting user content from {platform}, user={user_id}, limit={limit}, source={source}, source_id={source_id}")
             
-            result = await connector.harvest_user_content(user_id, limit, context_id, source, source_id)
+            result = await connector.harvest_user_content(user_id, limit, source, source_id)
 
             logger.info(f"[ConnectorService] Harvested {len(result)} items")
             return result
@@ -272,8 +263,7 @@ class ConnectorService:
         source_id: str = "default",
         content_type: str = "text",
         images: Optional[List[str]] = None,
-        tags: Optional[List[str]] = None,
-        context_id: Optional[str] = None
+        tags: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """发布内容到平台
 
@@ -315,8 +305,6 @@ class ConnectorService:
         source: str = "default",
         source_id: str = "default",
         limit: Optional[int] = None,
-        extract_details: bool = False,
-        context_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """通过创作者ID提取内容
 
@@ -327,7 +315,6 @@ class ConnectorService:
             source_id: 用户标识
             limit: 限制数量
             extract_details: 是否提取详情
-            context_id: 上下文ID，用于保持登录态
 
         Returns:
             提取结果列表
@@ -339,8 +326,6 @@ class ConnectorService:
             results = await connector.extract_by_creator_id(
                 creator_id=creator_id,
                 limit=limit,
-                extract_details=extract_details,
-                context_id=context_id,
                 source=source,
                 source_id=source_id
             )
@@ -359,8 +344,6 @@ class ConnectorService:
         source: str = "default",
         source_id: str = "default",
         limit: int = 20,
-        extract_details: bool = False,
-        context_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """搜索并提取内容
 
@@ -371,7 +354,6 @@ class ConnectorService:
             source_id: 用户标识
             limit: 限制数量
             extract_details: 是否提取详情
-            context_id: 上下文ID，用于保持登录态
 
         Returns:
             搜索结果列表
@@ -383,8 +365,6 @@ class ConnectorService:
             results = await connector.search_and_extract(
                 keyword=keyword,
                 limit=limit,
-                extract_details=extract_details,
-                context_id=context_id,
                 source=source,
                 source_id=source_id
             )
