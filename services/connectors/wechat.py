@@ -9,6 +9,7 @@ import aiohttp
 
 from .base import BaseConnector
 from utils.logger import logger
+from utils.exceptions import SessionCreationException, BrowserInitializationException
 from pydantic import BaseModel, Field
 from models.connectors import PlatformType
 from config.settings import settings
@@ -24,8 +25,8 @@ class GzhArticleSummary(BaseModel):
 class WechatConnector(BaseConnector):
     """微信公众号连接器"""
 
-    def __init__(self):
-        super().__init__(platform_name=PlatformType.WECHAT)
+    def __init__(self, playwright):
+        super().__init__(platform_name=PlatformType.WECHAT, playwright=playwright)
         self.rss_url = settings.wechat.rss_url
         self.rss_timeout = settings.wechat.rss_timeout
         self.rss_buffer_size = settings.wechat.rss_buffer_size
@@ -76,7 +77,7 @@ class WechatConnector(BaseConnector):
         )
 
         if not session_result.success:
-            raise RuntimeError(f"Failed to create session: {session_result.error_message}")
+            raise SessionCreationException(f"Failed to create session: {session_result.error_message}")
 
         session = session_result.session
 
@@ -94,7 +95,7 @@ class WechatConnector(BaseConnector):
 
         if not ok:
             await self.agent_bay.delete(session, sync_context=False)
-            raise RuntimeError("Failed to initialize browser")
+            raise BrowserInitializationException("Failed to initialize browser")
 
         return session
 

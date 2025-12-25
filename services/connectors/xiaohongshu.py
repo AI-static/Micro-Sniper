@@ -7,6 +7,7 @@ from playwright.async_api import async_playwright, Page
 
 from .base import BaseConnector
 from utils.logger import logger
+from utils.exceptions import ContextNotFoundException, SessionCreationException, BrowserInitializationException
 from agentbay import ActOptions
 from models.connectors import PlatformType
 from agentbay import CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
@@ -18,8 +19,13 @@ class XiaohongshuConnector(BaseConnector):
     所有操作都需要登录，因此必须提供 context_id
     """
 
-    def __init__(self):
-        super().__init__(platform_name=PlatformType.XIAOHONGSHU)
+    def __init__(self, playwright):
+        super().__init__(platform_name=PlatformType.XIAOHONGSHU, playwright=playwright)
+    
+    @property
+    def platform_name_str(self) -> str:
+        """获取平台名称字符串"""
+        return self.platform_name.value
 
     def _build_context_id(self, source: str, source_id: str) -> str:
         """构建 context_id: xiaohongshu:{source}:{source_id}"""
@@ -46,7 +52,7 @@ class XiaohongshuConnector(BaseConnector):
         # 获取持久化 context
         context_result = await self.agent_bay.context.get(context_key, create=False)
         if not context_result.success or not context_result.context:
-            raise ValueError(f"Context '{context_key}' not found")
+            raise ContextNotFoundException(f"Context '{context_key}' not found，请先登录")
         logger.info(f"context_result 存在 {context_key} :{context_result.context.id} {context_result.context.__dict__}")
         # 使用 context 创建 session
         session_result = await self.agent_bay.create(
@@ -58,7 +64,7 @@ class XiaohongshuConnector(BaseConnector):
         )
 
         if not session_result.success:
-            raise RuntimeError(f"Failed to create session: {session_result.error_message}")
+            raise SessionCreationException(f"Failed to create session: {session_result.error_message}")
         
         session = session_result.session
 
@@ -67,7 +73,7 @@ class XiaohongshuConnector(BaseConnector):
 
         if not ok:
             await self.agent_bay.delete(session, sync_context=False)
-            raise RuntimeError("Failed to initialize browser")
+            raise BrowserInitializationException("Failed to initialize browser")
         
         return session
     
@@ -507,6 +513,7 @@ class XiaohongshuConnector(BaseConnector):
         endpoint_url = await session.browser.get_endpoint_url()
 
         browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
+        cdp_session = await browser.new_browser_cdp_session()
         context = browser.contexts[0]
 
         try:
@@ -540,7 +547,6 @@ class XiaohongshuConnector(BaseConnector):
             import json
             notes_feeds = json.loads(notes_json)
 
-            # notes 是双重数组，展平
             all_feeds = []
             for feeds in notes_feeds:
                 if feeds:
@@ -550,7 +556,6 @@ class XiaohongshuConnector(BaseConnector):
                 logger.warning(f"[xiaohongshu] No feeds found for creator: {creator_id}")
                 return []
 
-            # 限制数量
             if limit:
                 all_feeds = all_feeds[:limit]
 
@@ -561,29 +566,39 @@ class XiaohongshuConnector(BaseConnector):
                 note_card = feed.get("noteCard", {})
                 model_type = feed.get("modelType", "")
 
+                note_id = feed.get("id")
+                xsec_token = feed.get("xsecToken", "")
+                xsec_source = feed.get("xsecSource", "pc_feed")
+
                 data = {
-                    "note_id": feed.get("id"),
-                    "xsec_token": feed.get("xsecToken"),
-                    "url": f"https://www.xiaohongshu.com/explore/{feed.get('id')}",
+                    "note_id": note_id,
+                    "xsec_token": xsec_token,
+                    "xsec_source": xsec_source,
+                    "url": f"https://www.xiaohongshu.com/explore/{note_id}",
+                    "full_url": f"https://www.xiaohongshu.com/explore/{note_id}?xsec_token={xsec_token}&xsec_source={xsec_source}",
                     "model_type": model_type,
                     "title": note_card.get("displayTitle", ""),
                 }
 
                 cover = note_card.get("cover", {})
                 if cover:
-                    data["image"] = cover.get("urlDefault", "")
+                    image_url = cover.get("urlDefault") or cover.get("url")
+                    if not image_url:
+                        info_list = cover.get("infoList", [])
+                        if info_list and len(info_list) > 0:
+                            image_url = info_list[0].get("url", "")
+                    data["image"] = image_url
                     data["cover"] = {
                         "width": cover.get("width"),
                         "height": cover.get("height"),
+                        "url_default": cover.get("urlDefault"),
                         "url": cover.get("url"),
+                        "url_pre": cover.get("urlPre"),
                     }
 
                 interact_info = note_card.get("interactInfo", {})
-                if interact_info:
-                    data["liked_count"] = interact_info.get("likedCount", "0")
-                    data["collected_count"] = interact_info.get("collectedCount", "0")
-                    data["comment_count"] = interact_info.get("commentCount", "0")
-                    data["shared_count"] = interact_info.get("sharedCount", "0")
+                data["liked_count"] = interact_info.get("likedCount", "0")
+                data["liked"] = interact_info.get("liked", False)
 
                 user_info = note_card.get("user", {})
                 if user_info:
@@ -603,6 +618,8 @@ class XiaohongshuConnector(BaseConnector):
             return results
 
         finally:
+            await cdp_session.send('Browser.close')
+            await asyncio.sleep(2)
             await self.agent_bay.delete(session, sync_context=True)
 
     async def get_note_detail(
@@ -635,7 +652,7 @@ class XiaohongshuConnector(BaseConnector):
                     try:
                         page = await context.new_page()
                         await page.goto(url, timeout=30000)
-                        await page.wait_for_load_state("networkidle", timeout=10000)
+                        await page.wait_for_load_state("networkidle", timeout=30000)
                         
                         # 使用_get_note_detail_evaluate方法提取笔记信息
                         note_data = await self._get_note_detail_evaluate(page)
@@ -666,9 +683,9 @@ class XiaohongshuConnector(BaseConnector):
         return results
     
     async def _get_note_detail_evaluate(self, page):
-        """使用evaluate提取笔记详情"""
+        """使用evaluate提取笔记详情，包含评论信息"""
         try:
-            await page.wait_for_selector("body", timeout=10000)
+            await page.wait_for_selector("body", timeout=30000)
 
             for attempt in range(3):
                 result = await page.evaluate("""
@@ -719,9 +736,31 @@ class XiaohongshuConnector(BaseConnector):
                                 "at_user_list": note.get("atUserList") or []
                             }
 
+                            # 添加评论信息
                             if comments_data:
                                 comment_list = comments_data.get("list", [])
-                                result_data["comments"] = comment_list[:50]
+                                # 处理评论数据，添加更多结构化信息
+                                processed_comments = []
+                                for comment in comment_list[:100]:  # 最多取100条评论
+                                    processed_comment = {
+                                        "id": comment.get("id"),
+                                        "note_id": comment.get("noteId"),
+                                        "content": comment.get("content"),
+                                        "like_count": comment.get("likeCount"),
+                                        "create_time": comment.get("createTime"),
+                                        "ip_location": comment.get("ipLocation"),
+                                        "liked": comment.get("liked", False),
+                                        "user_info": comment.get("userInfo") or {},
+                                        "sub_comment_count": comment.get("subCommentCount"),
+                                        "sub_comments": comment.get("subComments") or [],
+                                        "show_tags": comment.get("showTags") or []
+                                    }
+                                    processed_comments.append(processed_comment)
+                                
+                                result_data["comments"] = processed_comments
+                                result_data["comment_count"] = len(processed_comments)
+                                result_data["comment_has_more"] = comments_data.get("hasMore", False)
+                                result_data["comment_cursor"] = comments_data.get("cursor", "")
 
                             return result_data
 
@@ -813,7 +852,7 @@ class XiaohongshuConnector(BaseConnector):
                                 const avatar = user.avatar || '';
 
                                 results.push({{
-                                    noteId: noteId,
+                                    note_id: noteId,
                                     xsecToken: xsecToken,
                                     xsecSource: xsecSource,
                                     url: `https://www.xiaohongshu.com/explore/${{noteId}}`,

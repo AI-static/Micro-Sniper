@@ -35,19 +35,24 @@ class ExceptionHandlerMiddleware:
             """全局异常处理"""
             from sanic.response import json
             from api.schema.base import BaseResponse, ErrorCode, ErrorMessage
-            from utils.exceptions import BusinessException
+            from utils.exceptions import BusinessException, RateLimitException, LockConflictException, ContextNotFoundException
             
             # 业务异常处理
             if isinstance(exc, BusinessException):
                 logger.warning(f"业务异常: {exc.message} - {exc.details}")
-                # 根据错误码确定HTTP状态码
+                
+                # 根据异常类型确定HTTP状态码
                 status = 400
-                if exc.code >= 500:
+                if isinstance(exc, RateLimitException):
+                    status = 429  # Too Many Requests
+                elif isinstance(exc, LockConflictException):
+                    status = 409  # Conflict
+                elif isinstance(exc, ContextNotFoundException):
+                    status = 401  # Unauthorized
+                elif exc.code >= 500:
                     status = 500
                 elif exc.code == 404:
                     status = 404
-                elif exc.code == 600:  # 图片相关业务错误
-                    status = 400
                     
                 return json(
                     BaseResponse(

@@ -341,6 +341,180 @@ Context（上下文）：
 - 每个 CDP 连接是独立的 WebSocket
 - 无全局瓶颈，支持高并发
 
+### RPA 稳定性保障机制
+
+为了保证 RPA 自动化的稳定性和可靠性，系统实现了多层控制机制：
+
+#### 1. 频率限制 (Rate Limiting)
+
+**目的**：防止请求过于频繁导致被平台封禁或限流
+
+```python
+# 配置示例 (60秒内最多3个请求)
+OperationRateLimit(
+    max_requests=3,  # 时间窗口内最大请求数
+    window=60,       # 时间窗口（秒）
+    lock_timeout=120 # 锁超时时间（秒）
+)
+```
+
+**工作原理：**
+- 使用 Redis 存储请求计数
+- 滑动时间窗口算法
+- 超出限制直接拒绝，友好提示
+
+**场景示例：**
+```
+时间线：
+00:00 - 请求1 ✅ 允许（计数=1）
+00:10 - 请求2 ✅ 允许（计数=2）
+00:20 - 请求3 ✅ 允许（计数=3）
+00:30 - 请求4 ❌ 拒绝（超过限制）
+01:00 - 请求5 ✅ 允许（窗口重置，计数=1）
+```
+
+#### 2. 分布式锁 (Distributed Lock)
+
+**目的**：防止相同操作重复执行，避免资源冲突
+
+```python
+# 锁的键格式
+lock_key = "{source}:{source_id}:{platform}:{operation}"
+# 例如：system:user_123:xiaohongshu:get_note_detail
+```
+
+**安全特性：**
+- 使用唯一值标识锁持有者（UUID）
+- Redis 自动过期防止死锁（TTL）
+- Lua 脚本保证原子性
+- 异常安全释放（多层防护）
+
+**场景示例：**
+```
+用户同时发起2个相同的提取请求：
+- 请求1：获取锁 → 执行中...
+- 请求2：获取锁失败 → 返回友好提示
+  "当前正在运行另外一个 xiaohongshu:get_note_detail 任务，请等待完成后再试"
+```
+
+#### 3. 并发控制 (Concurrency Control)
+
+**目的**：控制同时执行的请求数量，避免资源耗尽
+
+**实现方式：**
+- 使用信号量 (Semaphore) 限制并发数
+- 每个操作类型独立控制
+- 不同操作可以并行
+
+**场景示例：**
+```
+同时发起多个请求：
+- 获取笔记A详情 → ✅ 执行中
+- 获取笔记B详情 → ⏳ 等待（同一操作，串行）
+- 搜索关键词 → ✅ 可以并行（不同操作）
+```
+
+#### 4. 三层防护体系
+
+```
+┌─────────────────────────────────────────────────────┐
+│              第一层：频率限制 (Rate Limit)            │
+│         60秒内最多3个请求，防止被封禁                 │
+└─────────────────────┬───────────────────────────────┘
+                      │ 通过
+┌─────────────────────▼───────────────────────────────┐
+│              第二层：并发控制 (Semaphore)             │
+│         同时最多1个请求执行，避免资源冲突              │
+└─────────────────────┬───────────────────────────────┘
+                      │ 获取
+┌─────────────────────▼───────────────────────────────┐
+│            第三层：分布式锁 (Distributed Lock)         │
+│         防止相同操作重复执行                          │
+└─────────────────────────────────────────────────────┘
+```
+
+#### 5. 异常处理与死锁防护
+
+**多层保障机制：**
+
+1. **Redis TTL 自动过期**
+   ```python
+   # 即使程序崩溃，锁也会自动释放
+   await redis.set(key, value, nx=True, ex=timeout)
+   ```
+
+2. **唯一值标识 + Lua 脚本**
+   ```python
+   # 只有锁持有者才能释放，防止误删
+   if redis.call("get", KEYS[1]) == ARGV[1] then
+       return redis.call("del", KEYS[1])
+   ```
+
+3. **异常安全的释放**
+   ```python
+   try:
+       yield lock
+   finally:
+       await lock.release()  # 无论如何都尝试释放
+   ```
+
+4. **状态重置机制**
+   ```python
+   finally:
+       self._acquired = False
+       self._lock_value = None  # 确保状态重置
+   ```
+
+#### 6. 友好的错误响应
+
+**频率限制超限：**
+```json
+{
+  "success": false,
+  "error": "频率限制：get_note_detail 操作过于频繁，请稍后再试",
+  "error_type": "rate_limit_exceeded"
+}
+```
+
+**正在运行相同任务：**
+```json
+{
+  "success": false,
+  "error": "当前正在运行另外一个 xiaohongshu:get_note_detail 任务，请等待完成后再试",
+  "error_type": "operation_in_progress"
+}
+```
+
+#### 配置示例
+
+不同平台和操作的配置：
+
+```python
+RATE_LIMIT_CONFIGS = RateLimitConfigs(
+    xiaohongshu=PlatformRateLimits(
+        login=OperationRateLimit(max_requests=3, window=60, lock_timeout=120),
+        extract_summary_stream=OperationRateLimit(max_requests=10, window=60, lock_timeout=300),
+        get_note_detail=OperationRateLimit(max_requests=10, window=60, lock_timeout=180),
+        harvest_user_content=OperationRateLimit(max_requests=5, window=60, lock_timeout=300),
+        search_and_extract=OperationRateLimit(max_requests=3, window=60, lock_timeout=180),
+    ),
+    wechat=PlatformRateLimits(
+        login=OperationRateLimit(max_requests=3, window=60, lock_timeout=120),
+        get_note_detail=OperationRateLimit(max_requests=10, window=60, lock_timeout=180),
+    )
+)
+```
+
+**为什么 RPA 需要这些机制？**
+
+1. **防封禁**：模拟人类行为，避免触发反爬虫
+2. **资源保护**：避免浏览器资源耗尽
+3. **数据一致性**：避免并发操作导致的数据冲突
+4. **系统稳定性**：防止过载导致的服务崩溃
+5. **用户体验**：提供友好的错误提示
+
+这些机制使得 RPA 自动化更加稳定可靠！
+
 ## 📊 API 端点
 
 | 端点 | 方法 | 描述 |
