@@ -1,10 +1,13 @@
 """
-Agent服务 - 强制顺序执行版
-核心目标：禁止并发，强制 Agent "想一步 -> 走一步 -> 看一步"。
+Agent服务 - 脚本任务执行方式 (多轮关键词搜索 + 纯LLM推理版)
+核心逻辑：
+1. 关键词裂变：Agent 自主将核心词扩展为 3 个不同维度的搜索词。
+2. 多轮搜索：针对每个扩展词执行搜索，获取更丰富的数据样本。
+3. 深度综合：由 LLM 直接阅读笔记详情，不再依赖统计工具。
 """
 from typing import List, Dict, Any, Optional
 from config.settings import global_settings
-from datetime import datetime, timedelta
+from datetime import datetime
 import asyncio
 
 # Agno imports
@@ -20,15 +23,15 @@ from utils.logger import logger
 # 1. 数据库连接
 db = AsyncPostgresDb(db_url=f"postgresql+asyncpg://{global_settings.database.user}:{global_settings.database.password}@{global_settings.database.host}:{global_settings.database.port}/{global_settings.database.name}")
 
-# 2. 模型配置
+# 2. 模型配置 (建议使用 qwen-max-latest 以保证多轮调用的逻辑稳定性)
 resoning_model = DashScope(
     base_url=global_settings.external_service.aliyun_base_url,
     api_key=global_settings.external_service.aliyun_api_key,
-    id="qwen-max-latest", # 使用最新模型以更好地遵循复杂指令
+    id="qwen-max-latest",
 )
 
 class XiaohongshuDeepAgent:
-    """小红书深度分析 Agent - 顺序执行版"""
+    """小红书深度爆款分析专家 - 多视角搜索版"""
 
     def __init__(
             self,
@@ -43,30 +46,25 @@ class XiaohongshuDeepAgent:
         self.agent = Agent(
             name="小红书爆款探针",
             model=resoning_model,
-            tool_call_limit=30, # 必须足够大，因为顺序执行意味着交互轮数变多
+            tool_call_limit=30,
             tools=[
                 self.search_xiaohongshu,
                 self.get_note_details
             ],
             instructions=[
-                f"当前日期: {self.current_date}。",
-                "你的任务是针对关键词进行多维度、实效性的爆款拆解。",
-                "",
-                "## ⚠️ 严格执行协议 (必须遵守)",
-                "1. **单线程工作模式**：为了防止触发反爬虫机制，**你每次回复只能调用【唯一】的一个工具**。严禁在一次回复中同时申请调用多个工具（如同时搜3个词）。",
-                "2. **顺序执行逻辑**：",
-                "   - 动作 A：规划第 1 个关键词 -> 调用搜索 -> 等待结果返回。",
-                "   - 动作 B：分析第 1 次结果 -> 规划第 2 个关键词 -> 调用搜索 -> 等待结果返回。",
-                "   - 动作 C：...以此类推。",
-                "",
-                "## 任务流程",
-                f"1. **关键词规划**：围绕「{self.keywords}」构思 3 个不同维度的搜索词（核心词、场景词、痛点词）。",
-                "2. **轮询搜索**：请**逐一**对这 3 个词发起 `search_xiaohongshu`。",
-                "3. **实效性筛选**：",
-                "   - 重点关注 `publish_time` 在近 7-15 天内的笔记。",
-                "   - 忽略 30 天以前的内容。",
-                "4. **详情深挖**：搜集完所有搜索结果后，挑选 3-5 篇最值得分析的笔记，**逐一**或一次性（仅此处允许批量）调用 `get_note_details`。",
-                "5. **最终报告**：输出 3 个具备实效性的爆款选题。"
+                f"当前日期: {self.current_date}。你是一个擅长通过多维搜索挖掘爆款逻辑的专家。",
+                "你的作业流程如下（必须严格遵守）：",
+                f"1. **关键词裂变策略**：不要只搜「{self.keywords}」。请基于用户思维，将其拆解为 3 个具体的搜索方向。例如：",
+                "   - 核心词（如：海豹文创）",
+                "   - 场景词（如：海豹文创 礼物/办公好物）",
+                "   - 痛点/情绪词（如：海豹 治愈系/可爱到犯规）",
+                "2. **广域数据采集**：必须 **分别串行调用** `search_xiaohongshu` 工具去搜索这 3 个方向的关键词。严禁只搜一次就交差，如果有并发限制就一个一个调用工具。",
+                "3. **精准筛选**：在多轮搜索返回的数十条数据中，综合考量 `liked_count` (点赞) ，挑选出 10-15 篇最具代表性的笔记。",
+                "4. **深度解码**：分别串行多次调用（如果有并发限制就一个一个调用工具。） `get_note_details` 读取这些精选笔记的全文，结合 `publish_time` (时效)，挑选出 5-8 篇最具代表性的笔记。重点分析：",
+                "   - 标题是如何制造焦虑或期待的？",
+                "   - 首图是用什么视觉元素留住用户的？",
+                "   - 评论区大家都在问什么？",
+                "5. **输出行动指南**：基于以上分析，生成 3 个具体的爆款选题方案。"
             ],
             db=db,
             markdown=True,
@@ -76,49 +74,49 @@ class XiaohongshuDeepAgent:
 
     async def search_xiaohongshu(self, keyword: str, limit: int = 15) -> Dict[str, Any]:
         """
-        搜索小红书。
+        在小红书搜索指定关键词。
+        返回包含：title, note_id, liked_count, publish_time, full_url
         """
         try:
             from models.connectors import PlatformType
-            logger.info(f"⚡️ Agent 正在顺序执行搜索: {keyword}")
+            logger.info(f"Agent 正在执行第 N 轮搜索: {keyword}")
 
-            # 可以在这里人为加一个短暂 sleep，确保顺序感更强，且对平台更友好
-            # await asyncio.sleep(2)
-
+            # 调用底层爬虫服务
             raw_result = await self.connector_service.search_and_extract(
                 platform=PlatformType.XIAOHONGSHU,
                 keyword=keyword,
                 limit=limit
             )
 
-            # 清洗数据
-            cleaned_data = []
-            for item in raw_result:
-                cleaned_data.append({
-                    "note_id": item.get("note_id"),
-                    "title": item.get("title"),
-                    "liked_count": item.get("liked_count", 0),
-                    "publish_time": item.get("publish_time", "未知"),
-                    "full_url": item.get("full_url")
-                })
+            # 数据清洗：只返回 LLM 需要的核心字段，防止 Context 溢出
+            cleaned_data = [{
+                "note_id": item.get("note_id"),
+                "title": item.get("title"),
+                "liked_count": item.get("liked_count", 0),
+                "publish_time": item.get("publish_time", "未知"),
+                "full_url": item.get("full_url")
+            } for item in raw_result]
 
             return {
                 "success": True,
-                "keyword_current": keyword,
-                "status": "本轮搜索完成，请分析数据后决定是否需要搜索下一个词。",
+                "keyword_used": keyword,
+                "count": len(cleaned_data),
                 "data": cleaned_data
             }
         except Exception as e:
+            # 如果搜索失败，返回错误但不中断整个流程
             return {"success": False, "error": str(e)}
 
-    async def get_note_details(self, urls: List[str]) -> Dict[str, Any]:
-        """获取笔记详情"""
+    async def get_note_details(self, full_url: str) -> Dict[str, Any]:
+        """
+        获取笔记详情（正文、图片描述、评论）
+        """
         try:
             from models.connectors import PlatformType
-            logger.info(f"📖 Agent 正在阅读 {len(urls)} 篇笔记详情...")
+            logger.info(f"Agent 正在深入分析 {len(urls)} 篇精选笔记...")
 
             result = await self.connector_service.get_note_details(
-                urls=urls,
+                urls=[full_url],
                 platform=PlatformType.XIAOHONGSHU,
                 concurrency=3
             )
@@ -127,41 +125,45 @@ class XiaohongshuDeepAgent:
             return {"success": False, "error": str(e)}
 
     async def analyze_trends_stream(self):
-        """流式分析"""
+        """流式任务入口"""
+        # Prompt 越简单直接越好，具体的执行逻辑已经写在 instructions 里了
         prompt = f"""
-        任务启动：请对「{self.keywords}」进行多维度爆款拆解。
+        任务：请对「{self.keywords}」进行多维度的爆款拆解。
         
-        请记住：**不要着急，一个一个搜**。
-        请立即开始规划第 1 个关键词并执行搜索。
+        请立即开始你的第一步：思考如何裂变关键词，并发起第一轮搜索。
         """
 
         async for chunk in self.agent.arun(prompt, stream=True):
             if chunk and chunk.content:
                 yield chunk.content
 
+# --- 主程序 ---
 async def main():
-    print("=== 小红书顺序执行 Agent 启动 ===", flush=True)
+    print("=== 小红书多维爆款分析任务启动 ===", flush=True)
 
     async with async_playwright() as p:
+
         try:
             analyzer = XiaohongshuDeepAgent(
                 source_id="system",
                 playwright=p,
-                keywords="海豹文创"
+                keywords="海豹文创"  # 核心种子词
             )
 
-            print(f"[目标]: {analyzer.keywords} (强制顺序模式)")
-            print("-" * 60)
+            print(f"[核心词]: {analyzer.keywords}")
+            print("-" * 80)
 
+            # 流式输出 Agent 的思考与执行过程
             async for content in analyzer.analyze_trends_stream():
                 print(content, end="", flush=True)
 
-            print("\n" + "-" * 60)
+            print("\n" + "-" * 80)
             print("[任务结束]")
 
         except Exception as e:
-            print(f"\n执行异常: {e}")
-
+            print(f"\n运行时异常: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
     asyncio.run(main())
