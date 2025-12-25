@@ -37,8 +37,6 @@ result = await connector_service.publish_content(
 from .base import BaseConnector
 from .xiaohongshu import XiaohongshuConnector
 from .wechat import WechatConnector
-from .generic import GenericConnector
-from services.connector_service import ConnectorService, connector_service
 
 __all__ = [
     # 基类
@@ -46,12 +44,7 @@ __all__ = [
 
     # 平台连接器
     "XiaohongshuConnector",
-    "WechatConnector",
-    "GenericConnector",
-
-    # 服务层
-    "ConnectorService",
-    "connector_service",  # 全局单例
+    "WechatConnector"
 ]
 
 __version__ = "2.0.0"

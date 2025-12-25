@@ -21,22 +21,31 @@ class BaseConnector(ABC):
     设计原则：
     - 子类负责实现 _build_session_key() 方法来拼接自己的 session key
     - 不再透传 source/source_id
+    - playwright 实例由外部传入，支持独立脚本运行
     """
 
-    def __init__(self, platform_name: str):
+    def __init__(self, platform_name: str, playwright=None):
         """初始化连接器
 
         Args:
             platform_name: 平台名称，用于日志和会话标识
+            playwright: Playwright 实例，如果不提供则从 Sanic app 获取
         """
         self.platform_name = platform_name
         api_key = global_settings.agentbay.api_key
         if not api_key:
             raise ValueError("AGENTBAY_API_KEY is required")
         self.agent_bay = AsyncAgentBay(api_key=api_key)
+        
+        # Playwright 实例管理
+        self._playwright_instance = playwright
 
     @property
     def playwright(self):
+        """获取 Playwright 实例"""
+        if self._playwright_instance:
+            return self._playwright_instance
+        # 如果没有传入实例，则从 Sanic app 获取（兼容 API 模式）
         return Sanic.get_app(global_settings.app.name).ctx.playwright
 
     @staticmethod
@@ -60,12 +69,12 @@ class BaseConnector(ABC):
             source_id: 用户标识
             
         Returns:
-            session key
+            session key 字符串
         """
         return f"{self.platform_name}:{source}:{source_id}"
 
     async def _get_session(self, source: str = "default", source_id: str = "default") -> Any:
-        """创建新的 session（普通 session，不使用 context_id）
+        """创建新的 session普通 session，不使用 context_id
 
         Args:
             source: 系统标识

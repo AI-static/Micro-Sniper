@@ -61,6 +61,8 @@ class ExternalServiceConfig(BaseModel):
     ezlink_api_key: Optional[str] = Field(default=None, description="EzLink API密钥")
     vectorai_base_url: Optional[str] = Field(default=None, description="VectorAI API基础URL")
     vectorai_api_key: Optional[str] = Field(default=None, description="VectorAI API密钥")
+    aliyun_base_url: Optional[str] = Field(default=None, description="阿里云基础URL")
+    aliyun_api_key: Optional[str] = Field(default=None, description="阿里云API密钥")
 
 
 class SecurityConfig(BaseModel):
@@ -83,6 +85,16 @@ class WechatConfig(BaseModel):
     rss_buffer_size: int = Field(default=8192, description="流式读取缓冲区大小")
 
 
+class RedisConfig(BaseModel):
+    """Redis配置"""
+    host: str = Field(default="localhost", description="Redis主机")
+    port: int = Field(default=6379, description="Redis端口")
+    db: int = Field(default=0, description="Redis数据库")
+    user: Optional[str] = Field(default=None, description="Redis用户名")
+    password: Optional[str] = Field(default=None, description="Redis密码")
+    max_connections: int = Field(default=5000, description="最大连接数")
+
+
 class IMConfig(BaseModel):
     """微信连接器配置"""
     wechat_corpid: str = Field(default=None, description="企业微信的企业id")
@@ -96,8 +108,9 @@ class IMConfig(BaseModel):
 class GlobalSettings(BaseSettings):
     """全局配置设置"""
     app: AppConfig = Field(default_factory=AppConfig)
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     logger: LoggerConfig = Field(default_factory=LoggerConfig)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    redis: RedisConfig = Field(default_factory=RedisConfig)
     agentbay: AgentBayConfig = Field(default_factory=AgentBayConfig)
     external_service: ExternalServiceConfig = Field(default_factory=ExternalServiceConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)

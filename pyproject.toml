@@ -32,6 +32,8 @@ agno = "^2.3.10"
 uvicorn = "^0.38.0"
 wuying-agentbay-sdk = "^0.13.1"
 playwright = "^1.57.0"
+redis = "^7.1.0"
+sqlalchemy = "^2.0.45"
 
 [tool.ruff]
 target-version = "py311"
