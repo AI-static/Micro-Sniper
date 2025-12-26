@@ -10,9 +10,9 @@ from services.connector_service import ConnectorService
 from utils.logger import logger
 from utils.exceptions import BusinessException, RateLimitException, LockConflictException, ContextNotFoundException
 from api.schema.base import BaseResponse, ErrorCode, ErrorMessage
-from api.schema.connectors import ExtractRequest, HarvestRequest, PublishRequest, LoginRequest, SearchRequest, ExtractByCreatorRequest
+from api.schema.connectors import ExtractRequest, HarvestRequest, PublishRequest, LoginRequest, SearchRequest
 from pydantic import BaseModel, Field, ValidationError
-from models.connectors import PlatformType
+from models.connectors import PlatformType, LoginMethod
 
 # 创建蓝图
 connectors_bp = Blueprint("connectors", url_prefix="/connectors")
@@ -63,7 +63,7 @@ async def harvest_content(request: Request):
     """采收用户内容"""
     try:
         data = HarvestRequest(**request.json)
-        logger.info(f"收到采收请求: platform={data.platform}, user_id={data.user_id}, limit={data.limit}")
+        logger.info(f"收到采收请求: platform={data.platform}, user_id={data.creator_ids}, limit={data.limit}")
 
         # 获取认证上下文
         auth_info = request.ctx.auth_info
@@ -71,16 +71,46 @@ async def harvest_content(request: Request):
 
         results = await connector_service.harvest_user_content(
             platform=data.platform,
-            user_id=data.user_id,
+            creator_ids=data.creator_ids,
             limit=data.limit
         )
+        
+        # 重组结果：按 creator_id 分组
+        results_by_creator = {}
+        successful_creators = 0
+        failed_creators = 0
+        total_notes = 0
+        
+        for result in results:
+            creator_id = result.get("creator_id")
+            if creator_id:
+                if result.get("success"):
+                    notes = result.get("data", [])
+                    results_by_creator[creator_id] = {
+                        "success": True,
+                        "note_count": len(notes),
+                        "notes": notes
+                    }
+                    successful_creators += 1
+                    total_notes += len(notes)
+                else:
+                    results_by_creator[creator_id] = {
+                        "success": False,
+                        "error": result.get("error"),
+                        "note_count": 0,
+                        "notes": []
+                    }
+                    failed_creators += 1
 
         return json(BaseResponse(
             code=ErrorCode.SUCCESS,
-            message=f"采收完成：获取到 {len(results)} 条内容",
+            message=f"采收完成：{successful_creators}/{len(data.creator_ids)} 个创作者成功，共 {total_notes} 条笔记",
             data={
-                "results": results,
-                "total": len(results)
+                "total_creators": len(data.creator_ids),
+                "successful_creators": successful_creators,
+                "failed_creators": failed_creators,
+                "total_notes": total_notes,
+                "results": results_by_creator
             }
         ).model_dump())
 
@@ -169,21 +199,35 @@ async def login(request: Request):
         logger.info(f"[Auth] 从认证上下文获取: 鉴权数据AuthInfo: {auth_info.source}")
 
         # 调用 connector_service 的 login 方法
-        context_id = await connector_service.login(
+        result = await connector_service.login(
             platform=data.platform,
             method=data.method,
             cookies=data.cookies or {}
         )
 
-        return json(BaseResponse(
-            code=ErrorCode.SUCCESS if context_id else ErrorCode.INTERNAL_ERROR,
-            message="登录成功" if context_id else "登录失败",
-            data={
-                "context_id": context_id,
-                "source": auth_info.source,
-                "source_id": auth_info.source_id
-            }
-        ).model_dump())
+        # 根据登录方法处理不同返回格式
+        if data.method == LoginMethod.QRCODE:
+            # 二维码登录返回字典，包含 qrcode, context_id, is_logged_in 等
+            return json(BaseResponse(
+                code=ErrorCode.SUCCESS if result.get("success") else ErrorCode.INTERNAL_ERROR,
+                message=result.get("message", "登录请求处理完成"),
+                data={
+                    **result,  # 包含 qrcode, context_id, is_logged_in, timeout 等
+                    "source": auth_info.source,
+                    "source_id": auth_info.source_id
+                }
+            ).model_dump())
+        else:
+            # Cookie 登录返回 context_id 字符串
+            return json(BaseResponse(
+                code=ErrorCode.SUCCESS if result else ErrorCode.INTERNAL_ERROR,
+                message="登录成功" if result else "登录失败",
+                data={
+                    "context_id": result,
+                    "source": auth_info.source,
+                    "source_id": auth_info.source_id
+                }
+            ).model_dump())
 
     except ValidationError as e:
         logger.error(f"参数验证失败: {e}")
@@ -310,61 +354,12 @@ async def get_note_detail(request: Request):
         ).model_dump(), status=500)
 
 
-@connectors_bp.post("/extract-by-creator")
-async def extract_by_creator(request: Request):
-    """通过创作者ID提取内容"""
-    try:
-        data = ExtractByCreatorRequest.model_validate(request.json)
-        logger.info(f"通过创作者ID提取内容: platform={data.platform}, creator_id={data.creator_id}")
-        
-        # 获取认证上下文
-        auth_info = request.ctx.auth_info
-        connector_service = ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id)
-        
-        results = await connector_service.extract_by_creator_id(
-            platform=data.platform,
-            creator_id=data.creator_id,
-            limit=data.limit
-        )
-        
-        return json(BaseResponse(
-            code=ErrorCode.SUCCESS,
-            message=f"提取完成：获取到 {len(results)} 条内容",
-            data={
-                "results": results,
-                "total": len(results)
-            }
-        ).model_dump())
-        
-    except ValidationError as e:
-        logger.error(f"参数验证失败: {e}")
-        return json(BaseResponse(
-            code=ErrorCode.VALIDATION_ERROR,
-            message=ErrorMessage.VALIDATION_ERROR,
-            data={"detail": str(e)}
-        ).model_dump(), status=400)
-    except ValueError as e:
-        logger.error(f"参数错误: {e}")
-        return json(BaseResponse(
-            code=ErrorCode.BAD_REQUEST,
-            message=str(e),
-            data={"error": str(e)}
-        ).model_dump(), status=400)
-    except Exception as e:
-        logger.error(f"提取失败: {e}")
-        return json(BaseResponse(
-            code=ErrorCode.INTERNAL_ERROR,
-            message=ErrorMessage.INTERNAL_ERROR,
-            data={"error": str(e)}
-        ).model_dump(), status=500)
-
-
 @connectors_bp.post("/search-and-extract")
 async def search_and_extract(request: Request):
     """搜索并提取内容"""
     try:
         data = SearchRequest.model_validate(request.json)
-        logger.info(f"搜索并提取内容: platform={data.platform}, keyword={data.keyword}")
+        logger.info(f"搜索并提取内容: platform={data.platform}, keywords={data.keywords}")
         
         # 获取认证上下文
         auth_info = request.ctx.auth_info
@@ -372,17 +367,46 @@ async def search_and_extract(request: Request):
         
         results = await connector_service.search_and_extract(
             platform=data.platform,
-            keyword=data.keyword,
+            keywords=data.keywords,
             limit=data.limit
         )
         
+        # 重组结果：按 keyword 分组
+        results_by_keyword = {}
+        successful_keywords = 0
+        failed_keywords = 0
+        total_results = 0
+        
+        for result in results:
+            keyword = result.get("keyword")
+            if keyword:
+                if result.get("success"):
+                    items = result.get("data", [])
+                    results_by_keyword[keyword] = {
+                        "success": True,
+                        "result_count": len(items),
+                        "results": items
+                    }
+                    successful_keywords += 1
+                    total_results += len(items)
+                else:
+                    results_by_keyword[keyword] = {
+                        "success": False,
+                        "error": result.get("error"),
+                        "result_count": 0,
+                        "results": []
+                    }
+                    failed_keywords += 1
+
         return json(BaseResponse(
             code=ErrorCode.SUCCESS,
-            message=f"搜索完成：找到 {len(results)} 条结果",
+            message=f"搜索完成：{successful_keywords}/{len(data.keywords)} 个关键词成功，共 {total_results} 条结果",
             data={
-                "results": results,
-                "total": len(results),
-                "keyword": data.keyword
+                "total_keywords": len(data.keywords),
+                "successful_keywords": successful_keywords,
+                "failed_keywords": failed_keywords,
+                "total_results": total_results,
+                "results": results_by_keyword
             }
         ).model_dump())
         

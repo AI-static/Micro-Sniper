@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
-"""小红书连接器 - 支持登录、提取、发布、监控"""
+"""小红书连接器 - 支持登录、提取、发布、监控 (优化版)"""
 
 import asyncio
-from typing import Dict, Any, List, Optional
-from playwright.async_api import async_playwright, Page
+import time
+import json
+import base64
+from typing import Dict, Any, List, Optional, Callable, AsyncGenerator
+from playwright.async_api import Page
+from datetime import datetime
 
 from .base import BaseConnector
 from utils.logger import logger
 from utils.exceptions import ContextNotFoundException, SessionCreationException, BrowserInitializationException
+from utils.oss import oss_client
 from agentbay import ActOptions
 from models.connectors import PlatformType
 from agentbay import CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
@@ -15,389 +20,487 @@ from agentbay import CreateSessionParams, BrowserContext, BrowserOption, Browser
 
 class XiaohongshuConnector(BaseConnector):
     """小红书连接器
-    
+
     所有操作都需要登录，因此必须提供 context_id
     """
 
     def __init__(self, playwright):
         super().__init__(platform_name=PlatformType.XIAOHONGSHU, playwright=playwright)
-    
+
     @property
     def platform_name_str(self) -> str:
-        """获取平台名称字符串"""
         return self.platform_name.value
 
     def _build_context_id(self, source: str, source_id: str) -> str:
-        """构建 context_id: xiaohongshu:{source}:{source_id}"""
         return f"{self.platform_name.value}-context:{source}-{source_id}"
 
-
     async def _get_browser_session(
-        self,
-        source: str = "default",
-        source_id: str = "default"
+            self,
+            source: str = "default",
+            source_id: str = "default"
     ) -> Any:
-        """获取 browser session（使用持久化 context）
-        
-        Args:
-            context_id: 持久化上下文ID
-            source: 系统标识
-            source_id: 用户标识
-            
-        Returns:
-            session 对象
-        """
-
+        """获取 browser session（使用持久化 context）"""
         context_key = self._build_context_id(source, source_id)
         # 获取持久化 context
         context_result = await self.agent_bay.context.get(context_key, create=False)
         if not context_result.success or not context_result.context:
             raise ContextNotFoundException(f"Context '{context_key}' not found，请先登录")
-        logger.info(f"context_result 存在 {context_key} :{context_result.context.id} {context_result.context.__dict__}")
+
+        logger.info(f"Using context {context_key} :{context_result.context.id}")
+
         # 使用 context 创建 session
         session_result = await self.agent_bay.create(
             CreateSessionParams(
                 image_id="browser_latest",
-                # 这里的cntext要传真实的id
                 browser_context=BrowserContext(context_result.context.id, auto_upload=True)
             )
         )
 
         if not session_result.success:
             raise SessionCreationException(f"Failed to create session: {session_result.error_message}")
-        
+
         session = session_result.session
 
         # 初始化浏览器
         ok = await session.browser.initialize(BrowserOption())
-
         if not ok:
             await self.agent_bay.delete(session, sync_context=False)
             raise BrowserInitializationException("Failed to initialize browser")
-        
+
         return session
-    
 
-    # ==================== 私有方法 ====================
+    # ==================== 资源管理与通用逻辑 (核心优化部分) ====================
 
-    async def _check_login_status(self, page) -> bool:
-        """检查是否已登录"""
-        try:
-            # 等待页面加载
-            await asyncio.sleep(1)
-            
-            # 使用和小红书MCP相同的选择器
-            # 这个选择器更可靠，因为它检查的是用户频道的存在
-            element = await page.query_selector('.main-container .user .link-wrapper .channel')
-            
-            if element:
-                logger.info("[xiaohongshu] Login status: Logged in (found channel element)")
-                return True
-            else:
-                logger.warning("[xiaohongshu] Login status: Not logged in (channel element not found)")
-                return False
-                
-        except Exception as e:
-            logger.error(f"[xiaohongshu] Error checking login status: {e}")
-            return False
-
-    def _process_note_detail(self, detail: dict) -> dict:
-        """处理笔记详情的原始数据"""
-        note = detail.get("note", {})
-        user = note.get("user", {})
-        interact_info = note.get("interactInfo", {})
-        image_list = note.get("imageList", [])
-
-        return {
-            "note_id": note.get("noteId"),
-            "title": note.get("title"),
-            "desc": note.get("desc"),
-            "type": note.get("type"),
-            "time": note.get("time"),
-            "user": {
-                "user_id": user.get("userId"),
-                "nickname": user.get("nickname") or user.get("nickName"),
-                "avatar": user.get("avatar")
-            },
-            "interact_info": {
-                "liked_count": interact_info.get("likedCount"),
-                "comment_count": interact_info.get("commentCount"),
-                "shared_count": interact_info.get("sharedCount"),
-                "collected_count": interact_info.get("collectedCount")
-            },
-            "images": [
-                {
-                    "url": img.get("urlDefault"),
-                    "width": img.get("width"),
-                    "height": img.get("height")
-                }
-                for img in image_list
-            ]
-        }
-
-    # ==================== 登陆和发布 ====================
-
-    async def extract_summary_stream(
-        self,
-        urls: List[str],
-        concurrency: int = 1,
-        source: str = "default",
-        source_id: str = "default",
-        extra: Optional[Dict[str, Any]] = None
-    ):
-        """流式提取小红书帖子详情并总结分析（使用Agent进行分析），支持并发"""
-        # 初始化一次 session 和 browser context，所有 URL 共享
-        session = await self._get_browser_session(source, source_id)
+    async def _connect_cdp(self, session):
+        """连接 CDP 并获取 context"""
         endpoint_url = await session.browser.get_endpoint_url()
-        
         browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
-        context = browser.contexts[0]
+        # 通常 connect_over_cdp 会复用上下文，这里取第一个
+        context = browser.contexts[0] if browser.contexts else await browser.new_context()
+        return browser, context
+
+    async def _cleanup_resources(self, session, browser):
+        """统一清理资源"""
 
         try:
-            # 创建信号量来限制并发数
+            if browser:
+                # 尝试通过 CDP 关闭，更干净
+                cdp = await browser.new_browser_cdp_session()
+                await cdp.send('Browser.close')
+                await asyncio.sleep(1)  # 给一点时间让 socket 关闭
+                browser.close()
+            if session:
+                # 默认 sync_context=True 以保存 Cookie 状态
+                await self.agent_bay.delete(session, sync_context=True)
+        except Exception:
+            pass
+
+    async def _batch_execute(
+            self,
+            items: List[Any],
+            processor: Callable[[Any, int, Any, Any], Any],
+            concurrency: int = 2,
+            source: str = "default",
+            source_id: str = "default"
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """通用并发批处理执行器
+
+        Args:
+            items: 待处理的数据列表 (url列表, id列表, keyword列表等)
+            processor: 处理函数，签名需为 async (item, idx, context, session) -> dict
+            concurrency: 并发数
+        """
+        session = None
+        browser = None
+
+        try:
+            # 1. 初始化环境
+            session = await self._get_browser_session(source, source_id)
+            browser, context = await self._connect_cdp(session)
+
+            # 2. 并发控制
             semaphore = asyncio.Semaphore(concurrency)
 
-            async def extract_single_url(url: str, idx: int):
-                """提取单个 URL（使用共享的 browser context）"""
+            async def worker(item, idx):
                 async with semaphore:
-                    logger.info(f"[xiaohongshu] Processing URL {idx}/{len(urls)}: {url}")
-
-                    page = None
                     try:
-                        # 在共享的 context 中创建新 page
-                        page = await context.new_page()
-                        await page.goto(url, timeout=60000)
-                        await asyncio.sleep(2)
-
-                        # 关闭可能出现的弹窗
-                        try:
-                            agent_browser = session.browser.agent
-                            await agent_browser.act_async(
-                                ActOptions(action="如果有弹窗或登录提示，关闭它们，然后滚动到笔记底部查看完整内容。"),
-                                page=page
-                            )
-                        except:
-                            pass
-
-                        # 使用get_note_detail方法获取结构化数据
-                        note_data = await self._get_note_detail_evaluate(page)
-                        
-                        # 如果获取到了结构化数据，使用Agent进行总结分析
-                        if note_data:
-                            # 准备用于分析的内容
-                            title = note_data.get("title", "")
-                            desc = note_data.get("desc", "")
-                            user_info = note_data.get("user", {})
-                            interaction = note_data.get("interact_info", {})
-                            tags = note_data.get("tag_list", [])
-                            
-                            # 构建分析提示
-                            prompt = f"""请分析这篇小红书笔记：
-
-                            标题: {title}
-                            
-                            内容: {desc}
-                            
-                            作者: {user_info.get('nickname', '未知')}
-                            互动数据: 
-                            - 点赞: {interaction.get('liked_count', 0)}
-                            - 收藏: {interaction.get('collected_count', 0)}
-                            - 评论: {interaction.get('comment_count', 0)}
-                            - 分享: {interaction.get('shared_count', 0)}
-                            
-                            标签: {', '.join([tag.get('name', '') for tag in tags])}
-                            
-                            请从以下几个方面进行分析：
-                            1. 内容主题和核心观点
-                            2. 作者的写作风格和特点
-                            3. 用户互动情况分析
-                            4. 内容的热度和传播价值
-                            5. 目标受众群体
-                            6. 总结和建议
-                            
-                            请详细分析并提供有价值的见解。"""
-                            
-                            # 使用Agent进行内容分析和总结
-                            analysis_result = ""
-                            try:
-                                # 使用session中的browser的agent
-                                analysis_agent = session.browser.agent
-                                # 生成分析结果
-                                response = await analysis_agent.run(prompt)
-                                analysis_result = response if isinstance(response, str) else str(response)
-                            except Exception as e:
-                                logger.error(f"[xiaohongshu] Agent分析失败: {e}")
-                                analysis_result = f"分析失败：{str(e)}\n\n原始内容：\n标题：{title}\n内容：{desc}"
-                            
-                            result = {
-                                "url": url,
-                                "success": True,
-                                "data": {
-                                    "note_data": note_data,
-                                    "analysis": analysis_result
-                                },
-                                "method": "agent_analysis"
-                            }
-                        else:
-                            result = {
-                                "url": url,
-                                "success": False,
-                                "error": "无法获取笔记内容"
-                            }
-
-                        logger.info(f"[xiaohongshu] Extracted summary for URL {idx}/{len(urls)}, success={result['success']}")
-
-                        return result
-
+                        return await processor(item, idx, context, session)
                     except Exception as e:
-                        logger.error(f"[xiaohongshu] Error extracting {url}: {e}")
+                        logger.error(f"[xiaohongshu] Worker error processing {item}: {e}")
                         return {
-                            "url": url,
+                            "item": item,
                             "success": False,
                             "error": str(e)
                         }
-                    finally:
-                        # 关闭 page
-                        if page:
-                            await page.close()
 
-            # 启动所有任务
-            tasks = [
-                asyncio.create_task(extract_single_url(url, idx))
-                for idx, url in enumerate(urls, 1)
-            ]
+            # 3. 创建任务
+            tasks = [asyncio.create_task(worker(item, idx)) for idx, item in enumerate(items)]
 
-            # 使用 as_completed 来实时返回结果（谁先完成就先返回谁）
+            # 4. 实时产生结果
             for completed_task in asyncio.as_completed(tasks):
-                result = await completed_task
-                yield result
+                yield await completed_task
 
+        except Exception as e:
+            logger.error(f"[xiaohongshu] Batch execution failed: {e}")
+            raise
         finally:
-            await self.agent_bay.delete(session, sync_context=False)
+            # 5. 统一清理
+            await self._cleanup_resources(session, browser)
 
+    # ==================== 业务逻辑：登录与发布 ====================
 
-    async def login_with_cookies(self,
-                                 cookies: Dict[str, str],
-                                 source: str = "default",
-                                 source_id: str = "default") -> str:
-        """使用 Cookie 登录小红书
-
-        Args:
-            cookies: 登录的 cookies
-            source: 系统标识，用于区分不同的系统
-            source_id: 用户标识，用于区分不同用户
-
-        Returns:
-            str: 登录成功返回 context_id
-        """
-        import time
-
+    async def login_with_cookies(
+            self,
+            cookies: Dict[str, str],
+            source: str = "default",
+            source_id: str = "default"
+    ) -> str:
+        """使用 Cookie 登录小红书"""
         context_key = self._build_context_id(source, source_id)
         logger.info(f"[xiaohongshu] Logging in with context_id: {context_key}")
 
-        session = None
+        # 获取或创建 Context
+        context_res = await self.agent_bay.context.get(context_key, create=True)
+        if not context_res.success:
+            raise ValueError(f"Failed to create context: {context_res.error_message}")
+
+        # 创建临时 Session 进行 Cookie 注入
+        session_res = await self.agent_bay.create(
+            CreateSessionParams(
+                image_id="browser_latest",
+                browser_context=BrowserContext(context_res.context.id, auto_upload=True)
+            )
+        )
+        if not session_res.success:
+            raise ValueError(f"Failed to create session: {session_res.error_message}")
+
+        session = session_res.session
+        browser = None
 
         try:
-            # Step 1: 创建持久化 context
-            logger.info(f"[xiaohongshu] Creating context '{context_key}'...")
-            context_result = await self.agent_bay.context.get(context_key, create=True)
+            await session.browser.initialize(BrowserOption(
+                screen=BrowserScreen(width=1920, height=1080),
+                solve_captchas=True,
+                use_stealth=True,
+                fingerprint=BrowserFingerprint(
+                    devices=["desktop"],
+                    operating_systems=["windows"],
+                    locales=self.get_locale(),
+                ),
+            ))
+            browser, context_p = await self._connect_cdp(session)
+            page = await context_p.new_page()
 
-            if not context_result.success or not context_result.context:
-                logger.error(f"[xiaohongshu] Failed to create context: {context_result.error_message}")
-                raise ValueError("Failed to create context")
+            # 转换并注入 Cookies
+            cookies_list = [{
+                "name": k, "value": v, "domain": ".xiaohongshu.com", "path": "/",
+                "httpOnly": False, "secure": False, "expires": int(time.time()) + 86400
+            } for k, v in cookies.items()]
 
-            context = context_result.context
-            logger.info(f"[xiaohongshu] Context created with ID: {context.id}")
+            await context_p.add_cookies(cookies_list)
+            await asyncio.sleep(0.5)
 
-            # Step 2: 使用 context 创建 session
-            session_result = await self.agent_bay.create(
-                CreateSessionParams(
-                    image_id="browser_latest",
-                    browser_context=BrowserContext(context.id, auto_upload=True)
-                )
-            )
+            # 验证登录
+            await page.goto("https://www.xiaohongshu.com", timeout=60000)
+            await asyncio.sleep(1)
 
-            if not session_result.success or not session_result.session:
-                logger.error(f"[xiaohongshu] Failed to create session: {session_result.error_message}")
-                raise ValueError("Failed to create session")
+            is_logged_in = await self._check_login_status(page)
+            logger.info(f"[xiaohongshu] Login status: {is_logged_in}")
 
-            session = session_result.session
-            logger.info(f"[xiaohongshu] Session created with ID: {session.session_id}")
-
-            # Step 3: 初始化浏览器并设置 cookies
-            logger.info(f"[xiaohongshu] Initializing browser and setting cookies...")
-
-            init_success = await session.browser.initialize(BrowserOption())
-            if not init_success:
-                logger.error(f"[xiaohongshu] Failed to initialize browser")
-                raise ValueError("Failed to initialize browser")
-
-            logger.info(f"[xiaohongshu] Browser initialized successfully")
-
-            # 获取 endpoint URL
-            endpoint_url = await session.browser.get_endpoint_url()
-            if not endpoint_url:
-                logger.error(f"[xiaohongshu] Failed to get browser endpoint URL")
-                raise ValueError("Failed to get browser endpoint URL")
-
-            logger.info(f"[xiaohongshu] Browser endpoint URL: {endpoint_url}")
-
-            browser = None
-            page = None
-            try:
-                browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
-                cdp_session = await browser.new_browser_cdp_session()
-                context_p = browser.contexts[0] if browser.contexts else await browser.new_context()
-                page = await context_p.new_page()
-
-                # 转换 cookies 为 Playwright 格式
-                cookies_list = []
-                for name, value in cookies.items():
-                    cookies_list.append({
-                        "name": name,
-                        "value": value,
-                        "domain": ".xiaohongshu.com",
-                        "path": "/",
-                        "httpOnly": False,
-                        "secure": False,
-                        "expires": int(time.time()) + 3600 * 24
-                    })
-                await context_p.add_cookies(cookies_list)
-                await asyncio.sleep(0.6)
-
-                await page.goto("https://www.xiaohongshu.com", timeout=60000)
-                await asyncio.sleep(0.6)
-
-                logger.info(f"[xiaohongshu] Added {len(cookies_list)} cookies")
-
-                cookies = await context_p.cookies()
-                logger.info(f"[xiaohongshu] Added cookies---> {cookies} cookies")
-
-                # 检查登录是否成功
-                is_logged_in = await self._check_login_status(page)
-                logger.info(f"[xiaohongshu] check_login_status {is_logged_in}")
-                await cdp_session.send('Browser.close')
-                await asyncio.sleep(2)
-
-            except Exception as e:
-                raise
-            finally:
-                if browser:
-                    await browser.close()
-                if page:
-                    await page.close()
-
-            # Step 4: 删除 session 并同步 context 以保存 cookies
             if not is_logged_in:
-                raise ValueError("Login failed: invalid cookies")
-            logger.info(f"[xiaohongshu] Login successful, saving session with context sync...")
-            return context.id
+                raise ValueError("Login failed: cookies invalid or expired")
+
+            return context_res.context.id
+
+        finally:
+            await self._cleanup_resources(session, browser)
+
+    async def login_with_qrcode(
+            self,
+            source: str = "default",
+            source_id: str = "default",
+            timeout: int = 300
+    ) -> Dict[str, Any]:
+        """二维码登录小红书
+        
+        Args:
+            source: 来源标识
+            source_id: 来源ID（用于区分不同用户）
+            timeout: 超时时间（秒），默认300秒
+            
+        Returns:
+            {
+                "success": True,
+                "context_id": str,
+                "qrcode": str,  # OSS 存储的二维码图片 URL
+                "timeout": int,
+                "message": str
+            }
+        """
+        context_key = self._build_context_id(source, source_id)
+        logger.info(f"[xiaohongshu] QRCode login with context_id: {context_key}")
+
+        # 先检查是否已经登录（通过创建新会话验证）
+        try:
+            context_res = await self.agent_bay.context.get(context_key, create=False)
+            if context_res.success and context_res.context:
+                # 创建临时 session 验证登录状态
+                verify_session_res = await self.agent_bay.create(
+                    CreateSessionParams(
+                        image_id="browser_latest",
+                        browser_context=BrowserContext(context_res.context.id, auto_upload=False)
+                    )
+                )
+                if verify_session_res.success:
+                    verify_session = verify_session_res.session
+                    browser_v = None
+                    try:
+                        await verify_session.browser.initialize(BrowserOption(
+                            screen=BrowserScreen(width=1920, height=1080),
+                            solve_captchas=True,
+                            use_stealth=True,
+                            fingerprint=BrowserFingerprint(
+                                devices=["desktop"],
+                                operating_systems=["windows"],
+                                locales=self.get_locale(),
+                            ),
+                        ))
+                        browser_v, context_v = await self._connect_cdp(verify_session)
+                        page = await context_v.new_page()
+                        
+                        await page.goto("https://www.xiaohongshu.com", timeout=30000)
+                        await asyncio.sleep(1)
+                        
+                        if await self._check_login_status(page):
+                            # 验证成功，已登录
+                            await self._cleanup_resources(verify_session, browser_v)
+                            return {
+                                "success": True,
+                                "context_id": context_key,
+                                "qrcode": "",
+                                "timeout": 0,
+                                "message": "Already logged in",
+                                "is_logged_in": True
+                            }
+                        
+                        # 未登录，继续执行下面的登录流程
+                        logger.info("[xiaohongshu] Context exists but not logged in, starting new login")
+                    except Exception as e:
+                        logger.debug(f"[xiaohongshu] Verify login status error: {e}")
+                    finally:
+                        # 清理验证会话
+                        if browser_v:
+                            try:
+                                await browser_v.close()
+                            except:
+                                pass
+                        try:
+                            await self.agent_bay.delete(verify_session, sync_context=False)
+                        except:
+                            pass
+        except Exception as e:
+            logger.debug(f"[xiaohongshu] Check existing context failed: {e}")
+
+        # 创建新的登录 Session
+        session_res = await self.agent_bay.create(
+            CreateSessionParams(
+                image_id="browser_latest"
+            )
+        )
+        if not session_res.success:
+            raise ValueError(f"Failed to create session: {session_res.error_message}")
+
+        session = session_res.session
+        browser = None
+
+        try:
+            await session.browser.initialize(BrowserOption(
+                screen=BrowserScreen(width=1920, height=1080),
+                solve_captchas=True,
+                use_stealth=True,
+                fingerprint=BrowserFingerprint(
+                    devices=["desktop"],
+                    operating_systems=["windows"],
+                    locales=self.get_locale(),
+                ),
+            ))
+            browser, context_p = await self._connect_cdp(session)
+            page = await context_p.new_page()
+
+            # 导航到小红书首页触发二维码
+            await page.goto("https://www.xiaohongshu.com/explore", timeout=60000)
+            await asyncio.sleep(2)
+
+            # 检查是否已经登录
+            if await self._check_login_status(page):
+                logger.info("[xiaohongshu] Already logged in")
+                await self._cleanup_resources(session, browser)
+                return {
+                    "success": True,
+                    "context_id": context_key,
+                    "qrcode": "",
+                    "timeout": 0,
+                    "message": "Already logged in",
+                    "is_logged_in": True
+                }
+
+            # 获取二维码图片
+            qrcode_url = await self._get_qrcode_image(page, source, source_id)
+            if not qrcode_url:
+                await self._cleanup_resources(session, browser)
+                raise ValueError("Failed to get qrcode image")
+
+            logger.info("[xiaohongshu] QRCode generated, waiting for scan...")
+
+            # 启动后台任务等待扫码（不阻塞响应）
+            asyncio.create_task(self._wait_for_login_and_save(
+                session=session,
+                browser=browser,
+                page=page,
+                context_key=context_key,
+                timeout=timeout
+            ))
+
+            # 立即返回二维码（不等待扫码完成）
+            return {
+                "success": True,
+                "context_id": context_key,
+                "qrcode": qrcode_url,
+                "timeout": timeout,
+                "message": "QRCode generated, waiting for scan",
+                "is_logged_in": False
+            }
 
         except Exception as e:
-            logger.error(f"[xiaohongshu] Error during login: {e}")
+            logger.error(f"[xiaohongshu] QRCode login failed: {e}")
+            await self._cleanup_resources(session, browser)
             raise
-        finally:
-            delete_result = await self.agent_bay.delete(session, sync_context=True)
+
+    async def _wait_for_login_and_save(
+            self,
+            session: Any,
+            browser: Any,
+            page: Page,
+            context_key: str,
+            timeout: int
+    ):
+        """后台任务：等待扫码登录并保存到 Context"""
+        logger.info(f"[xiaohongshu] Background task: waiting for login (timeout={timeout}s)")
+        
+        try:
+            # 每 5 秒检查一次登录状态
+            for i in range(timeout // 5):
+                try:
+                    if await self._check_login_status(page):
+                        logger.info("[xiaohongshu] Login successful! Saving cookies to context...")
+                        
+                        # 登录成功，保存到 Context
+                        context_res = await self.agent_bay.context.get(context_key, create=True)
+                        if context_res.success:
+                            # 关闭浏览器时自动同步 cookies 到 context
+                            await self._cleanup_resources(session, browser)
+                            logger.info(f"[xiaohongshu] Cookies saved to context: {context_key}")
+                        else:
+                            logger.error(f"[xiaohongshu] Failed to get context: {context_res.error_message}")
+                            await self._cleanup_resources(session, browser)
+                        return
+                except Exception as e:
+                    error_msg = str(e)
+                    # 如果是 Session 失效错误，直接退出
+                    if "no alive session" in error_msg or "SessionHandleError" in error_msg:
+                        logger.warning(f"[xiaohongshu] Session no longer alive, stopping login wait")
+                        return
+                    logger.warning(f"[xiaohongshu] Check login status error: {e}")
+                
+                await asyncio.sleep(5)
+            
+            # 超时
+            logger.warning(f"[xiaohongshu] Login timeout after {timeout}s")
+            await self._cleanup_resources(session, browser)
+            
+        except Exception as e:
+            logger.error(f"[xiaohongshu] Background login task error: {e}")
+            await self._cleanup_resources(session, browser)
+
+    async def _get_qrcode_image(self, page: Page, source: str = "default", source_id: str = "default") -> Optional[str]:
+        """获取二维码图片并上传到OSS
+        
+        Args:
+            page: Playwright页面对象
+            source: 来源标识
+            source_id: 来源ID
+            
+        Returns:
+            OSS存储的二维码图片URL
+        """
+        try:
+            # 等待二维码元素出现
+            await page.wait_for_selector(".login-container .qrcode-img", timeout=10000)
+            
+            screenshot_bytes = None
+            
+            # 方法1: 尝试从 img src 获取
+            qrcode_elem = await page.query_selector(".login-container .qrcode-img")
+            if qrcode_elem:
+                src = await qrcode_elem.get_attribute("src")
+                if src and src.startswith("data:image"):
+                    logger.info("[xiaohongshu] Got QRCode from img src")
+                    # 解析 base64 数据
+                    if "," in src:
+                        screenshot_bytes = base64.b64decode(src.split(",")[1])
+            
+            # 方法2: 如果 src 是 URL，则截图获取
+            if qrcode_elem and not screenshot_bytes:
+                # 截取二维码区域
+                bbox = await qrcode_elem.bounding_box()
+                if bbox:
+                    # 等待二维码完全加载
+                    await asyncio.sleep(0.5)
+                    
+                    # 截图整个二维码区域
+                    screenshot_bytes = await page.screenshot(clip={
+                        "x": bbox["x"],
+                        "y": bbox["y"],
+                        "width": bbox["width"],
+                        "height": bbox["height"]
+                    })
+                    logger.info("[xiaohongshu] Got QRCode from screenshot")
+            
+            if not screenshot_bytes:
+                logger.error("[xiaohongshu] Failed to get QRCode")
+                return None
+            
+            # 生成唯一的文件名：source+sourceid+xiaohongshu-qrcode
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            filename = f"qrcodes/{source}-{source_id}-xiaohongshu-qrcode-{timestamp}.png"
+            
+            # 上传到 OSS
+            try:
+                qrcode_url = await oss_client.upload_and_get_url(filename, screenshot_bytes)
+                logger.info(f"[xiaohongshu] QRCode uploaded to OSS: {qrcode_url}")
+                return qrcode_url
+            except Exception as e:
+                logger.error(f"[xiaohongshu] Failed to upload QRCode to OSS: {e}")
+                # 降级：返回 base64
+                b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+                return f"data:image/png;base64,{b64}"
+            
+        except Exception as e:
+            logger.error(f"[xiaohongshu] Get qrcode error: {e}")
+            return None
+
+    async def _check_login_status(self, page: Page) -> bool:
+        """检查是否已登录"""
+        try:
+            # 等待页面加载
+            await page.wait_for_selector("body", timeout=10000)
+            
+            # 检查登录成功的元素
+            element = await page.query_selector('.main-container .user .link-wrapper .channel')
+            return bool(element)
+        except Exception as e:
+            logger.debug(f"[xiaohongshu] Check login status error: {e}")
+            return False
 
     async def publish_content(
             self,
@@ -408,29 +511,26 @@ class XiaohongshuConnector(BaseConnector):
             source: str = "default",
             source_id: str = "default"
     ) -> Dict[str, Any]:
-        """发布内容到小红书"""
+        """发布内容"""
         session = await self._get_browser_session(source, source_id)
-        endpoint_url = await session.browser.get_endpoint_url()
-        
-        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
-        context = browser.contexts[0]
-
+        browser = None
         try:
+            browser, context = await self._connect_cdp(session)
             page = await context.new_page()
+
             await page.goto("https://creator.xiaohongshu.com/publish/publish", timeout=60000)
             await asyncio.sleep(2)
 
-            # 构建发布指令
+            # 构建 Agent 指令
+            tag_str = ', '.join(tags or [])
             if content_type == "image" and images:
-                instruction = f"发布图文笔记：内容「{content}」，上传图片：{', '.join(images)}，添加标签：{', '.join(tags or [])}"
+                instruction = f"发布图文笔记：内容「{content}」，上传图片：{', '.join(images)}，添加标签：{tag_str}"
             elif content_type == "video":
-                instruction = f"发布视频笔记：内容「{content}」，添加标签：{', '.join(tags or [])}"
+                instruction = f"发布视频笔记：内容「{content}」，添加标签：{tag_str}"
             else:
-                instruction = f"发布文字笔记：内容「{content}」，添加标签：{', '.join(tags or [])}"
+                instruction = f"发布文字笔记：内容「{content}」，添加标签：{tag_str}"
 
-            # 执行发布操作
-            agent = session.browser.agent
-            success = await agent.act_async(
+            success = await session.browser.agent.act_async(
                 ActOptions(action=instruction),
                 page=page
             )
@@ -438,455 +538,363 @@ class XiaohongshuConnector(BaseConnector):
             return {
                 "success": success,
                 "content": content,
-                "content_type": content_type,
-                "platform": str(PlatformType.XIAOHONGSHU)
+                "platform": self.platform_name_str
             }
-
         finally:
-            await self.agent_bay.delete(session, sync_context=True)
+            await self._cleanup_resources(session, browser)
 
+    # ==================== 业务逻辑：提取与监控 (使用通用批处理) ====================
 
+    async def extract_summary_stream(
+            self,
+            urls: List[str],
+            concurrency: int = 1,
+            source: str = "default",
+            source_id: str = "default",
+            extra: Optional[Dict[str, Any]] = None
+    ):
+        """流式提取并使用 Agent 分析"""
 
-    # ==================== 多种查询方式的支持 ====================
+        async def _process(url: str, idx: int, context: Any, session: Any):
+            logger.info(f"[xiaohongshu] Analyzing URL {idx + 1}: {url}")
+            page = await context.new_page()
+            try:
+                await page.goto(url, timeout=60000)
+                await asyncio.sleep(2)
 
+                # 关闭可能的弹窗
+                try:
+                    await session.browser.agent.act_async(
+                        ActOptions(action="如果有弹窗或登录提示，关闭它们。"), page=page
+                    )
+                except:
+                    pass
+
+                note_data = await self._get_note_detail_evaluate(page)
+
+                if note_data:
+                    # 构建 Prompt 让 Agent 分析
+                    prompt = self._build_analysis_prompt(note_data)
+                    try:
+                        analysis_res = await session.browser.agent.run(prompt)
+                        analysis_text = analysis_res if isinstance(analysis_res, str) else str(analysis_res)
+
+                        return {
+                            "url": url,
+                            "success": True,
+                            "data": {"note_data": note_data, "analysis": analysis_text},
+                            "method": "agent_analysis"
+                        }
+                    except Exception as e:
+                        return {"url": url, "success": False, "error": f"Agent analysis failed: {e}"}
+                else:
+                    return {"url": url, "success": False, "error": "Failed to extract note data"}
+            finally:
+                await page.close()
+
+        # 调用通用批处理
+        async for result in self._batch_execute(urls, _process, concurrency, source, source_id):
+            yield result
 
     async def harvest_user_content(
             self,
-            user_id: str,
+            creator_ids: List[str],
             limit: Optional[int] = None,
             source: str = "default",
-            source_id: str = "default"
+            source_id: str = "default",
+            concurrency: int = 2
     ) -> List[Dict[str, Any]]:
-        """采收用户的所有笔记
+        """批量抓取创作者笔记"""
 
-        Args:
-            user_id: 用户ID
-            limit: 限制数量
-
-        Returns:
-            笔记列表
-        """
-        logger.info(f"[xiaohongshu] Harvesting notes from user: {user_id}, limit={limit}")
-
-        # 直接获取用户的笔记列表（已包含完整数据）
-        return await self.extract_by_creator_id(user_id, limit=limit, source=source, source_id=source_id)
-
-    async def extract_by_note_ids(
-        self,
-        note_ids: List[str],
-        concurrency: int = 3
-    ) -> List[Dict[str, Any]]:
-        """通过笔记ID批量提取内容
-
-        Args:
-            note_ids: 笔记ID列表
-            concurrency: 并发数
-
-        Returns:
-            提取结果列表
-        """
-        # 构建URL
-        urls = [f"https://www.xiaohongshu.com/explore/{note_id}" for note_id in note_ids]
-
-        logger.info(f"[xiaohongshu] Extracting {len(note_ids)} notes by IDs")
-        return await self.get_note_detail(urls, concurrency)
-
-    async def extract_by_creator_id(
-        self,
-        creator_id: str,
-        limit: Optional[int] = None,
-        source: str = "default",
-        source_id: str = "default"
-    ) -> List[Dict[str, Any]]:
-        """通过创作者ID提取其笔记
-
-        Args:
-            creator_id: 创作者ID
-            limit: 限制提取数量
-
-        Returns:
-            笔记列表
-        """
-        logger.info(f"[xiaohongshu] Extracting notes from creator: {creator_id}, limit={limit}")
-
-        session = await self._get_browser_session(source, source_id)
-        endpoint_url = await session.browser.get_endpoint_url()
-
-        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
-        cdp_session = await browser.new_browser_cdp_session()
-        context = browser.contexts[0]
-
-        try:
+        async def _process(creator_id: str, idx: int, context: Any, session: Any):
+            logger.info(f"[xiaohongshu] Harvesting creator {idx + 1}: {creator_id}")
             page = await context.new_page()
-            profile_url = f"https://www.xiaohongshu.com/user/profile/{creator_id}"
-            await page.goto(profile_url, timeout=60000)
+            try:
+                await page.goto(f"https://www.xiaohongshu.com/user/profile/{creator_id}", timeout=60000)
+                await asyncio.sleep(1)
 
-            for attempt in range(3):
-                notes_json = await page.evaluate("""
-                    () => {
-                        if (window.__INITIAL_STATE__ &&
-                            window.__INITIAL_STATE__.user &&
-                            window.__INITIAL_STATE__.user.notes) {
-                            const notes = window.__INITIAL_STATE__.user.notes;
-                            const data = notes.value !== undefined ? notes.value : notes._value;
-                            if (data) {
-                                return JSON.stringify(data);
-                            }
-                        }
-                        return "";
-                    }
-                """)
-                if notes_json:
-                    break
-                await asyncio.sleep(0.3)
+                # 提取 Initial State
+                raw_data = await self._extract_initial_state(page, "user.notes")
+                if not raw_data:
+                    return {"creator_id": creator_id, "success": False, "error": "No notes found"}
 
-            if not notes_json:
-                logger.warning(f"[xiaohongshu] No notes found for creator: {creator_id}")
-                return []
+                # 解析数据
+                all_feeds = []
+                for feed_group in raw_data:  # notes 是个数组的数组
+                    if feed_group: all_feeds.extend(feed_group)
 
-            import json
-            notes_feeds = json.loads(notes_json)
+                parsed_notes = [self._parse_feed_item(item) for item in all_feeds]
+                if limit:
+                    parsed_notes = parsed_notes[:limit]
 
-            all_feeds = []
-            for feeds in notes_feeds:
-                if feeds:
-                    all_feeds.extend(feeds)
+                return {"creator_id": creator_id, "success": True, "data": parsed_notes}
+            finally:
+                await page.close()
 
-            if not all_feeds:
-                logger.warning(f"[xiaohongshu] No feeds found for creator: {creator_id}")
-                return []
-
-            if limit:
-                all_feeds = all_feeds[:limit]
-
-            logger.info(f"[xiaohongshu] Found {len(all_feeds)} notes for creator: {creator_id}")
-
-            results = []
-            for feed in all_feeds:
-                note_card = feed.get("noteCard", {})
-                model_type = feed.get("modelType", "")
-
-                note_id = feed.get("id")
-                xsec_token = feed.get("xsecToken", "")
-                xsec_source = feed.get("xsecSource", "pc_feed")
-
-                data = {
-                    "note_id": note_id,
-                    "xsec_token": xsec_token,
-                    "xsec_source": xsec_source,
-                    "url": f"https://www.xiaohongshu.com/explore/{note_id}",
-                    "full_url": f"https://www.xiaohongshu.com/explore/{note_id}?xsec_token={xsec_token}&xsec_source={xsec_source}",
-                    "model_type": model_type,
-                    "title": note_card.get("displayTitle", ""),
-                }
-
-                cover = note_card.get("cover", {})
-                if cover:
-                    image_url = cover.get("urlDefault") or cover.get("url")
-                    if not image_url:
-                        info_list = cover.get("infoList", [])
-                        if info_list and len(info_list) > 0:
-                            image_url = info_list[0].get("url", "")
-                    data["image"] = image_url
-                    data["cover"] = {
-                        "width": cover.get("width"),
-                        "height": cover.get("height"),
-                        "url_default": cover.get("urlDefault"),
-                        "url": cover.get("url"),
-                        "url_pre": cover.get("urlPre"),
-                    }
-
-                interact_info = note_card.get("interactInfo", {})
-                data["liked_count"] = interact_info.get("likedCount", "0")
-                data["liked"] = interact_info.get("liked", False)
-
-                user_info = note_card.get("user", {})
-                if user_info:
-                    data["user_id"] = user_info.get("userId")
-                    data["nickname"] = user_info.get("nickname") or user_info.get("nickName")
-                    data["avatar"] = user_info.get("avatar")
-
-                video = note_card.get("video")
-                if video and video.get("capa"):
-                    data["video_duration"] = video["capa"].get("duration")
-
-                results.append({
-                    "success": True,
-                    "data": data
-                })
-
-            return results
-
-        finally:
-            await cdp_session.send('Browser.close')
-            await asyncio.sleep(2)
-            await self.agent_bay.delete(session, sync_context=True)
+        results = []
+        async for result in self._batch_execute(creator_ids, _process, concurrency, source, source_id):
+            results.append(result)
+        return results
 
     async def get_note_detail(
-        self,
-        urls: List[str],
-        concurrency: int = 3,
-        source: str = "default",
-        source_id: str = "default"
+            self,
+            urls: List[str],
+            source: str = "default",
+            source_id: str = "default",
+            concurrency: int = 2
     ) -> List[Dict[str, Any]]:
-        """获取单个笔记的详情（使用evaluate提取结构化数据）
-        
-        Args:
-            urls: 链接集合
-            concurrency: 并发数
-        Returns:
-            笔记详情
-        """
-        session = await self._get_browser_session(source, source_id)
-        endpoint_url = await session.browser.get_endpoint_url()
-        
-        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
-        context = browser.contexts[0]
-        
-        try:
-            semaphore = asyncio.Semaphore(concurrency)
-            
-            async def extract_detail(url):
-                async with semaphore:
-                    page = None
-                    try:
-                        page = await context.new_page()
-                        await page.goto(url, timeout=30000)
-                        await page.wait_for_load_state("networkidle", timeout=30000)
-                        
-                        # 使用_get_note_detail_evaluate方法提取笔记信息
-                        note_data = await self._get_note_detail_evaluate(page)
-                        
-                        return {
-                            "url": url,
-                            "success": True if note_data else False,
-                            "data": note_data or {},
-                            "method": "evaluate_extraction"
-                        }
-                        
-                    except Exception as e:
-                        return {
-                            "url": url,
-                            "success": False,
-                            "error": str(e),
-                            "method": "evaluate_extraction"
-                        }
-                    finally:
-                        if page:
-                            await page.close()
-            
-            results = await asyncio.gather(*[extract_detail(url) for url in urls], return_exceptions=True)
-            
-        finally:
-            await self.agent_bay.delete(session, sync_context=True)
-        
+        """批量获取笔记详情"""
+
+        async def _process(url: str, idx: int, context: Any, session: Any):
+            logger.info(f"[xiaohongshu] Extracting detail {idx + 1}: {url}")
+            page = await context.new_page()
+            try:
+                await page.goto(url, timeout=60000)
+                await asyncio.sleep(0.5)
+
+                data = await self._get_note_detail_evaluate(page)
+                return {
+                    "url": url,
+                    "success": bool(data),
+                    "data": data or {},
+                    "method": "evaluate_extraction"
+                }
+            finally:
+                await page.close()
+
+        results = []
+        async for result in self._batch_execute(urls, _process, concurrency, source, source_id):
+            results.append(result)
         return results
-    
-    async def _get_note_detail_evaluate(self, page):
-        """使用evaluate提取笔记详情，包含评论信息"""
+
+    async def search_and_extract(
+            self,
+            keywords: List[str],
+            limit: int = 20,
+            user_id: Optional[str] = None,
+            source: str = "default",
+            source_id: str = "default",
+            concurrency: int = 2
+    ) -> List[Dict[str, Any]]:
+        """批量搜索"""
+
+        async def _process(keyword: str, idx: int, context: Any, session: Any):
+            logger.info(f"[xiaohongshu] Searching keyword {idx + 1}: {keyword}")
+            page = await context.new_page()
+            try:
+                url = f"https://www.xiaohongshu.com/search_result?keyword={keyword}"
+                await page.goto(url, timeout=60000)
+                await asyncio.sleep(2)
+
+                # 注入 JS 提取搜索结果
+                script = self._get_search_extract_script(user_id)
+                results = await page.evaluate(script)
+
+                return {
+                    "keyword": keyword,
+                    "success": bool(results),
+                    "data": results or []
+                }
+            finally:
+                await page.close()
+
+        results = []
+        async for result in self._batch_execute(keywords, _process, concurrency, source, source_id):
+            results.append(result)
+        return results
+
+    # ==================== 底层数据提取与辅助方法 (私有) ====================
+
+    async def _extract_initial_state(self, page: Page, key_path: str) -> Optional[Any]:
+        """通用的 __INITIAL_STATE__ 提取器"""
+        keys = key_path.split('.')
+        js_check = " && ".join([f"window.__INITIAL_STATE__{'.' + '.'.join(keys[:i + 1])}" for i in range(len(keys))])
+
+        script = f"""
+        () => {{
+            if (window.__INITIAL_STATE__ && {js_check}) {{
+                const target = window.__INITIAL_STATE__.{key_path};
+                return target.value !== undefined ? target.value : target._value;
+            }}
+            return null;
+        }}
+        """
+        for _ in range(3):
+            data = await page.evaluate(script)
+            if data: return data
+            await asyncio.sleep(0.3)
+        return None
+
+    async def _get_note_detail_evaluate(self, page: Page) -> Optional[Dict]:
+        """从页面提取详情结构化数据 - 扁平化友好结构"""
         try:
             await page.wait_for_selector("body", timeout=30000)
 
-            for attempt in range(3):
-                result = await page.evaluate("""
-                    () => {
-                        const data = {};
-
-                        if (window.__INITIAL_STATE__) {
-                            if (window.__INITIAL_STATE__.note &&
-                                window.__INITIAL_STATE__.note.noteDetailMap) {
-                                data.noteDetailMap = window.__INITIAL_STATE__.note.noteDetailMap;
-                            }
-                            if (window.__INITIAL_STATE__.comments) {
-                                data.comments = window.__INITIAL_STATE__.comments;
-                            }
-                        }
-
-                        return Object.keys(data).length > 0 ? JSON.stringify(data) : "";
-                    }
-                """)
-
-                if result:
-                    import json
-                    data = json.loads(result)
-                    note_detail_map = data.get("noteDetailMap", {})
-                    comments_data = data.get("comments", {})
-
-                    if note_detail_map:
-                        note_ids = list(note_detail_map.keys())
-                        if note_ids:
-                            note_id = note_ids[0]
-                            note_detail = note_detail_map[note_id]
-                            note = note_detail.get("note", {})
-
-                            result_data = {
-                                "note_id": note.get("noteId"),
-                                "xsec_token": note.get("xsecToken"),
-                                "title": note.get("title"),
-                                "desc": note.get("desc"),
-                                "type": note.get("type"),
-                                "time": note.get("time"),
-                                "ip_location": note.get("ipLocation"),
-                                "user": note.get("user") or {},
-                                "interact_info": note.get("interactInfo") or {},
-                                "image_list": note.get("imageList") or [],
-                                "video": note.get("video"),
-                                "tag_list": note.get("tagList") or [],
-                                "location": note.get("location") or {},
-                                "at_user_list": note.get("atUserList") or []
-                            }
-
-                            # 添加评论信息
-                            if comments_data:
-                                comment_list = comments_data.get("list", [])
-                                # 处理评论数据，添加更多结构化信息
-                                processed_comments = []
-                                for comment in comment_list[:100]:  # 最多取100条评论
-                                    processed_comment = {
-                                        "id": comment.get("id"),
-                                        "note_id": comment.get("noteId"),
-                                        "content": comment.get("content"),
-                                        "like_count": comment.get("likeCount"),
-                                        "create_time": comment.get("createTime"),
-                                        "ip_location": comment.get("ipLocation"),
-                                        "liked": comment.get("liked", False),
-                                        "user_info": comment.get("userInfo") or {},
-                                        "sub_comment_count": comment.get("subCommentCount"),
-                                        "sub_comments": comment.get("subComments") or [],
-                                        "show_tags": comment.get("showTags") or []
-                                    }
-                                    processed_comments.append(processed_comment)
-                                
-                                result_data["comments"] = processed_comments
-                                result_data["comment_count"] = len(processed_comments)
-                                result_data["comment_has_more"] = comments_data.get("hasMore", False)
-                                result_data["comment_cursor"] = comments_data.get("cursor", "")
-
-                            return result_data
-
-                await asyncio.sleep(0.2)
-
-            logger.warning("[xiaohongshu] Failed to extract note after 3 attempts")
-            return None
-
-        except Exception as e:
-            logger.error(f"获取笔记详情失败: {e}")
-            return None
-
-    async def search_and_extract(
-        self,
-        keyword: str,
-        limit: int = 20,
-        user_id: Optional[str] = None,
-        source: str = "default",
-        source_id: str = "default"
-    ) -> List[Dict[str, Any]]:
-        """搜索并提取小红书内容
-
-        Args:
-            keyword: 搜索关键词
-            limit: 限制数量
-            user_id: 可选，只搜索特定用户的笔记
-        Returns:
-            搜索结果（包含完整详情）
-        """
-        # 验证登录状态并获取 context_id
-        logger.info(f"[xiaohongshu] Searching for: {keyword}, user_id: {user_id}")
-
-        session = await self._get_browser_session(source, source_id)
-        endpoint_url = await session.browser.get_endpoint_url()
-
-        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
-        cdp_session = await browser.new_browser_cdp_session()
-
-        context = browser.contexts[0]
-
-        logger.info(f"[xiaohongshu] Context cookies count: {len(await context.cookies())}")
-
-        try:
-            page = await context.new_page()
-            # 构建搜索URL
-            search_url = f"https://www.xiaohongshu.com/search_result?keyword={keyword}"
-            await page.goto(search_url, timeout=30000)
-            await asyncio.sleep(3)
-
-            # 提取搜索结果（从小红书 MCP 的 __INITIAL_STATE__ 中提取）
-            search_results = await page.evaluate(f"""
-                () => {{
-                    const results = [];
-                    const filterUserId = {f'"{user_id}"' if user_id else 'null'};
-
-                    // 从 __INITIAL_STATE__ 中获取搜索结果（参考小红书 MCP 实现）
+            # 获取 noteDetailMap，包含 Note 和 Comments
+            data_json = await page.evaluate("""
+                () => {
                     if (window.__INITIAL_STATE__ &&
-                        window.__INITIAL_STATE__.search &&
-                        window.__INITIAL_STATE__.search.feeds) {{
-                        const feeds = window.__INITIAL_STATE__.search.feeds;
-                        const feedsData = feeds.value !== undefined ? feeds.value : feeds._value;
-
-                        if (feedsData && Array.isArray(feedsData)) {{
-                            for (const feed of feedsData) {{
-                                const noteCard = feed.noteCard;
-                                if (!noteCard) continue;
-
-                                const user = noteCard.user || {{}};
-
-                                // 如果指定了 user_id，只返回该用户的笔记
-                                if (filterUserId && user.userId !== filterUserId) {{
-                                    continue;
-                                }}
-
-                                const noteId = feed.id;
-                                const xsecToken = feed.xsecToken;
-                                const xsecSource = feed.xsecSource || 'pc_feed';
-                                const fullUrl = `https://www.xiaohongshu.com/explore/${{noteId}}?xsec_token=${{xsecToken}}&xsec_source=${{xsecSource}}`;
-
-                                // 提取互动数据（参考小红书 MCP 的 InteractInfo 结构）
-                                const interactInfo = noteCard.interactInfo || {{}};
-                                const likedCount = interactInfo.likedCount || '0';
-                                const collectedCount = interactInfo.collectedCount || '0';
-                                const commentCount = interactInfo.commentCount || '0';
-                                const sharedCount = interactInfo.sharedCount || '0';
-
-                                const userId = user.userId || '';
-                                const nickname = user.nickname || user.nickName || '';
-                                const avatar = user.avatar || '';
-
-                                results.push({{
-                                    note_id: noteId,
-                                    xsecToken: xsecToken,
-                                    xsecSource: xsecSource,
-                                    url: `https://www.xiaohongshu.com/explore/${{noteId}}`,
-                                    full_url: fullUrl,
-                                    title: noteCard.displayTitle || '',
-                                    image: noteCard.cover?.urlDefault || '',
-                                    liked_count: likedCount,
-                                    collected_count: collectedCount,
-                                    comment_count: commentCount,
-                                    shared_count: sharedCount,
-                                    user_id: userId,
-                                    nickname: nickname,
-                                    avatar: avatar
-                                }});
-                            }}
-                        }}
-                    }}
-
-                    return results;
-                }}
+                        window.__INITIAL_STATE__.note &&
+                        window.__INITIAL_STATE__.note.noteDetailMap) {
+                        const noteDetailMap = window.__INITIAL_STATE__.note.noteDetailMap;
+                        return JSON.stringify(noteDetailMap);
+                    }
+                    return "";
+                }
             """)
 
-            if not search_results:
-                logger.warning(f"[xiaohongshu] No search results for: {keyword}")
-                return []
+            if not data_json:
+                logger.warning(f"[xiaohongshu] No noteDetailMap found")
+                return None
 
-            # 限制数量
-            search_results = search_results[:limit]
+            note_detail_map = json.loads(data_json)
+            if not note_detail_map:
+                return None
 
-            logger.info(f"[xiaohongshu] Found {len(search_results)} search results")
+            # 获取第一个笔记的详情
+            first_entry = list(note_detail_map.values())[0]
+            note = first_entry.get("note", {})
+            comments_data = first_entry.get("comments", {})
 
-            return search_results
+            # 提取评论列表
+            comments_list = comments_data.get("list", []) if isinstance(comments_data, dict) else []
 
-        finally:
-            await cdp_session.send('Browser.close')
-            await asyncio.sleep(2)
-            await self.agent_bay.delete(session, sync_context=True)
+            # 扁平化用户信息
+            user = note.get("user", {})
+            interact_info = note.get("interactInfo", {})
+
+            # 扁平化图片列表，只保留核心字段
+            image_list = note.get("imageList", [])
+            images = [{
+                "url": img.get("urlDefault", ""),
+                "width": img.get("width", 0),
+                "height": img.get("height", 0)
+            } for img in image_list]
+
+            # 扁平化标签列表
+            tag_list = note.get("tagList", [])
+            tags = [tag.get("name", "") for tag in tag_list if tag.get("name")]
+
+            # 扁平化评论
+            comments = [{
+                "content": c.get("content", ""),
+                "user_nickname": c.get("userInfo", {}).get("nickname", ""),
+                "likes": c.get("likeCount", "0"),
+                "time": c.get("createTime", "")
+            } for c in comments_list[:50]]
+
+            # 处理时间字段
+            time_timestamp = note.get("time", "")
+            update_time = ""
+            if time_timestamp:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromtimestamp(time_timestamp / 1000)
+                    update_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    update_time = str(time_timestamp)
+
+            result = {
+                "note_id": note.get("noteId"),
+                "title": note.get("title", ""),
+                "desc": note.get("desc", ""),
+                "type": note.get("type", ""),
+                "time": time_timestamp,
+                "update_time": update_time,
+                # 用户信息扁平化
+                "user_id": user.get("userId", ""),
+                "user_nickname": user.get("nickname", ""),
+                "user_avatar": user.get("avatar", ""),
+                # 互动数据扁平化
+                "liked_count": int(interact_info.get("likedCount", 0)),
+                "collected_count": int(interact_info.get("collectedCount", 0)),
+                "comment_count": int(interact_info.get("commentCount", 0)),
+                "share_count": int(interact_info.get("shareCount", 0)),
+                # 扁平化的图片、标签、评论
+                "images": images,
+                "tags": tags,
+                "comments": comments
+            }
+
+            logger.info(f"[xiaohongshu] Extracted note: {result.get('title')[:30]}, {len(images)} images, {len(comments)} comments")
+            return result
+
+        except Exception as e:
+            logger.error(f"[xiaohongshu] Evaluate details failed: {e}")
+            return None
+
+    def _parse_feed_item(self, feed: Dict) -> Dict:
+        """解析单个 Feed 条目"""
+        card = feed.get("noteCard", {})
+        note_id = feed.get("id")
+        xsec_token = feed.get("xsecToken", "")
+        
+        base_url = f"https://www.xiaohongshu.com/explore/{note_id}"
+        full_url = base_url
+        if xsec_token:
+            full_url = f"{base_url}?xsec_token={xsec_token}&xsec_source=pc_feed"
+        
+        return {
+            "note_id": note_id,
+            "title": card.get("displayTitle", ""),
+            "url": base_url,
+            "full_url": full_url,
+            "liked_count": card.get("interactInfo", {}).get("likedCount", "0"),
+            "cover": card.get("cover", {}).get("urlDefault", ""),
+            "user": {
+                "id": card.get("user", {}).get("userId"),
+                "name": card.get("user", {}).get("nickname")
+            }
+        }
+
+    def _build_analysis_prompt(self, note_data: Dict) -> str:
+        interact = note_data.get('interact_info', {})
+        tags = [t.get('name', '') for t in note_data.get('tag_list', [])]
+        return f"""请分析这篇小红书笔记：
+        标题: {note_data.get('title')}
+        内容: {note_data.get('desc')}
+        互动: 点赞 {interact.get('liked_count', 0)}, 收藏 {interact.get('collected_count', 0)}
+        标签: {', '.join(tags)}
+
+        请简要分析：1.核心观点 2.受众群体 3.爆款原因。"""
+
+    def _get_search_extract_script(self, filter_user_id: Optional[str]) -> str:
+        """生成搜索提取的 JS 脚本"""
+        return f"""
+        () => {{
+            const results = [];
+            const filterId = {f"'{filter_user_id}'" if filter_user_id else 'null'};
+
+            if (window.__INITIAL_STATE__?.search?.feeds?.value) {{
+                const feeds = window.__INITIAL_STATE__.search.feeds.value;
+                for (const feed of feeds) {{
+                    if (!feed.noteCard) continue;
+                    if (filterId && feed.noteCard.user?.userId !== filterId) continue;
+
+                    const noteId = feed.id;
+                    const xsecToken = feed.xsecToken || '';
+                    const baseUrl = `https://www.xiaohongshu.com/explore/${{noteId}}`;
+                    let fullUrl = baseUrl;
+                    if (xsecToken) {{
+                        fullUrl = `${{baseUrl}}?xsec_token=${{xsecToken}}&xsec_source=pc_feed`;
+                    }}
+
+                    results.push({{
+                        note_id: noteId,
+                        title: feed.noteCard.displayTitle,
+                        url: baseUrl,
+                        full_url: fullUrl,
+                        type: feed.noteCard.type,
+                        cover: feed.noteCard.cover?.urlDefault || '',
+                        liked_count: feed.noteCard.interactInfo?.likedCount || 0,
+                        collected_count: feed.noteCard.interactInfo?.collectedCount || 0,
+                        comment_count: feed.noteCard.interactInfo?.commentCount || 0,
+                        user_id: feed.noteCard.user?.userId || '',
+                        user_nickname: feed.noteCard.user?.nickname || '',
+                        user_avatar: feed.noteCard.user?.avatar || ''
+                    }});
+                }}
+            }}
+            return results;
+        }}
+        """

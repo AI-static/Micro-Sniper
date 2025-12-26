@@ -20,5 +20,5 @@ class PlatformType(str, Enum):
 class LoginMethod(str, Enum):
     """登录方法枚举"""
     COOKIE = "cookie"
-
+    QRCODE = "qrcode"
 

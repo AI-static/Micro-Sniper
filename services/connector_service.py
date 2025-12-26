@@ -32,7 +32,6 @@ class PlatformRateLimits(BaseModel):
     extract_summary_stream: Optional[OperationRateLimit] = None
     get_note_detail: Optional[OperationRateLimit] = None
     harvest_user_content: Optional[OperationRateLimit] = None
-    extract_by_creator_id: Optional[OperationRateLimit] = None
     search_and_extract: Optional[OperationRateLimit] = None
     publish_content: Optional[OperationRateLimit] = None
 
@@ -254,16 +253,14 @@ class ConnectorService:
         self,
         urls: List[str],
         platform: PlatformType,
-        concurrency: int = 3,
+        concurrency: int = 2,
     ) -> List[Dict[str, Any]]:
         """获取笔记/文章详情（快速提取，不使用Agent）
 
         Args:
             urls: 要提取的URL列表
             platform: 平台名称
-            source: 系统标识
-            source_id: 用户标识
-            concurrency: 并发数
+            concurrency: 并发数（默认2）
 
         Returns:
             提取结果列表，每个元素包含 url、success、data 等字段
@@ -271,44 +268,14 @@ class ConnectorService:
         connector = self._get_connector(platform)
         
         async def _execute():
-            logger.info(f"[ConnectorService] Getting note details for {len(urls)} URLs from {platform}, source={self._source}, source_id={self._source_id}")
-            results = await connector.get_note_detail(urls, concurrency=concurrency, source=self._source, source_id=self._source_id)
+            logger.info(f"[ConnectorService] Getting note details for {len(urls)} URLs from {platform}, concurrency={concurrency}, source={self._source}, source_id={self._source_id}")
+            results = await connector.get_note_detail(urls, source=self._source, source_id=self._source_id, concurrency=concurrency)
             success_count = sum(1 for r in results if r.get("success"))
             logger.info(f"[ConnectorService] Get note details completed: {success_count}/{len(results)} successful")
             return results
         
         return await self._execute_with_lock_and_limit(platform, "get_note_detail", _execute)
 
-    async def harvest_user_content(
-        self,
-        platform: str | PlatformType,
-        user_id: str,
-        limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """采收用户/账号的所有内容
-
-        Args:
-            platform: 平台名称
-            user_id: 用户ID或账号标识
-            source: 系统标识
-            source_id: 用户标识
-            limit: 限制数量
-
-        Returns:
-            内容列表
-        """
-        connector = self._get_connector(platform)
-        
-        async def _execute():
-            logger.info(f"[ConnectorService] Harvesting user content from {platform}, user={user_id}, limit={limit}, source={self._source}, source_id={self._source_id}")
-            result = await connector.harvest_user_content(user_id, limit, self._source, self._source_id)
-            logger.info(f"[ConnectorService] Harvested {len(result)} items")
-            return result
-        
-        try:
-            return await self._execute_with_lock_and_limit(platform, "harvest_user_content", _execute)
-        except NotImplementedError:
-            raise ValueError(f"平台 {platform} 不支持采收功能")
 
     async def publish_content(
         self,
@@ -346,15 +313,15 @@ class ConnectorService:
         except NotImplementedError:
             raise ValueError(f"平台 {platform} 不支持发布功能")
 
-    async def extract_by_creator_id(
+    async def harvest_user_content(
         self,
         platform: str | PlatformType,
-        creator_id: str,
+        creator_ids: List[str],
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """通过创作者ID提取内容
 
-        Args:
+        Args:harvest_user_content
             platform: 平台名称
             creator_id: 创作者ID
             source: 系统标识
@@ -367,9 +334,9 @@ class ConnectorService:
         connector = self._get_connector(platform)
         
         async def _execute():
-            logger.info(f"[ConnectorService] Extracting by creator ID from {platform}, creator={creator_id}, source={self._source}, source_id={self._source_id}")
-            results = await connector.extract_by_creator_id(
-                creator_id=creator_id,
+            logger.info(f"[ConnectorService] Extracting by creator ID from {platform}, creators={creator_ids}, source={self._source}, source_id={self._source_id}")
+            results = await connector.harvest_user_content(
+                creator_ids=creator_ids,
                 limit=limit,
                 source=self._source,
                 source_id=self._source_id
@@ -381,8 +348,8 @@ class ConnectorService:
     
     async def search_and_extract(
         self,
-        platform: str | PlatformType,
-        keyword: str,
+        platform: PlatformType,
+        keywords: List[str],
         limit: int = 20,
     ) -> List[Dict[str, Any]]:
         """搜索并提取内容
@@ -400,9 +367,9 @@ class ConnectorService:
         connector = self._get_connector(platform)
         
         async def _execute():
-            logger.info(f"[ConnectorService] Searching and extracting from {platform}, keyword={keyword}, source={self._source}, source_id={self._source_id}")
+            logger.info(f"[ConnectorService] Searching and extracting from {platform}, keywords={keywords}, source={self._source}, source_id={self._source_id}")
             results = await connector.search_and_extract(
-                keyword=keyword,
+                keywords=keywords,
                 limit=limit,
                 source=self._source,
                 source_id=self._source_id
@@ -439,6 +406,16 @@ class ConnectorService:
                 context_id = await connector.login_with_cookies(cookies, self._source, self._source_id)
                 logger.info(f"[ConnectorService] Login Res: context_id: {context_id}")
                 return context_id
+            
+            return await self._execute_with_lock_and_limit(platform, "login", _execute)
+        elif platform == PlatformType.XIAOHONGSHU and method == LoginMethod.QRCODE:
+            connector = self._get_connector(platform)
+            
+            async def _execute():
+                logger.info(f"[ConnectorService] QRCode login to {platform} for source:{self._source}, source_id:{self._source_id}")
+                result = await connector.login_with_qrcode(self._source, self._source_id)
+                logger.info(f"[ConnectorService] QRCode login result: {result.get('message')}")
+                return result
             
             return await self._execute_with_lock_and_limit(platform, "login", _execute)
         else:

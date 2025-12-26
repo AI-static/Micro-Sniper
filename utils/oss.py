@@ -302,8 +302,3 @@ oss_client = OSSAsyncClient(
     endpoint=settings.oss.endpoint,
     bucket_name=settings.oss.bucket_name
 )
-
-# 保留获取函数以便兼容
-def get_oss_client() -> OSSAsyncClient:
-    """获取OSS客户端实例"""
-    return oss_client

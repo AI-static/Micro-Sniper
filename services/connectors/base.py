@@ -151,7 +151,7 @@ class BaseConnector(ABC):
         raise NotImplementedError(f"{self.platform_name} does not support get_note_detail")
 
     @abstractmethod
-    async def extract_by_creator_id(
+    async def harvest_user_content(
         self,
         creator_id: str,
         limit: Optional[int] = None,

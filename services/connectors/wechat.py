@@ -314,7 +314,7 @@ class WechatConnector(BaseConnector):
         finally:
             await self.agent_bay.delete(session, sync_context=False)
     
-    async def extract_by_creator_id(
+    async def harvest_user_content(
         self,
         creator_id: str,
         limit: Optional[int] = None,

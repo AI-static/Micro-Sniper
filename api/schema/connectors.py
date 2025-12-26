@@ -17,20 +17,13 @@ class ExtractRequest(BaseModel):
 class HarvestRequest(BaseModel):
     """采收请求"""
     platform: PlatformType = Field(..., description="平台名称（xiaohongshu/wechat）")
-    user_id: str = Field(..., description="用户ID或账号标识")
+    creator_ids: List[str] = Field(..., description="用户ID或账号标识")
     limit: Optional[int] = Field(50, description="限制数量")
 
 class SearchRequest(BaseModel):
     """搜索请求"""
     platform: PlatformType = Field(..., description="平台名称（xiaohongshu/wechat）")
-    keyword: str = Field(..., description="搜索关键字")
-    limit: Optional[int] = Field(50, description="限制数量")
-
-
-class ExtractByCreatorRequest(BaseModel):
-    """提取创作者内容请求"""
-    platform: PlatformType = Field(..., description="平台名称（xiaohongshu）")
-    creator_id: str = Field(..., description="创作者ID")
+    keywords: List[str] = Field(..., description="搜索关键字")
     limit: Optional[int] = Field(50, description="限制数量")
 
 class PublishRequest(BaseModel):
