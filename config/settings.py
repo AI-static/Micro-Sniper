@@ -164,6 +164,7 @@ def create_db_config():
             "models": {
                 "models": [
                     "models.identity",
+                    "models.task"
                 ],
                 "default_connection": "default"
             }

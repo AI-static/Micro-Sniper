@@ -38,8 +38,8 @@ class PublishRequest(BaseModel):
 class LoginRequest(BaseModel):
     """登录请求"""
     platform: PlatformType = Field(..., description="平台名称（xiaohongshu）")
-    method: Optional[LoginMethod] = Field(LoginMethod.COOKIE, description="登录方法（目前仅支持 cookie）")
-    cookies: Optional[Union[Dict[str, str], str]] = Field(None, description="Cookie 数据（字典或字符串格式）")
+    method: Optional[LoginMethod] = Field(LoginMethod.COOKIE, description="登录方法（cookie 或 qrcode）")
+    cookies: Optional[Union[Dict[str, str], str]] = Field(None, description="Cookie 数据（字典或字符串格式，method 为 cookie 时必填）")
 
     @field_validator('cookies', mode='before')
     @classmethod

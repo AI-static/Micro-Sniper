@@ -5,7 +5,7 @@ import asyncio
 from typing import Optional, List
 from datetime import datetime
 
-from models.sniper import Task, TaskStatus
+from models.task import Task, TaskStatus
 from utils.logger import logger
 
 
@@ -16,13 +16,12 @@ class TaskService:
         self.playwright = playwright
         self._running_tasks = {}  # task_id -> asyncio.Task
 
-    async def create_task(self, source_id: str, task_type: str, config: dict, goal: str = None) -> Task:
+    async def create_task(self, source_id: str, task_type: str, source: str = "system") -> Task:
         """创建任务"""
         task = await Task.create(
+            source=source,
             source_id=source_id,
-            task_type=task_type,
-            config=config,
-            goal=goal or f"执行 {task_type} 任务"
+            task_type=task_type
         )
         return task
 

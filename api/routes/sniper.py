@@ -13,42 +13,87 @@ from utils.logger import logger
 sniper_bp = Blueprint("sniper", url_prefix="/sniper")
 
 
-@sniper_bp.post("/trend")
-async def create_trend_task(request: Request):
-    """创建趋势分析任务"""
+@sniper_bp.post("/xhs-creator")
+async def create_creator_task(request: Request):
+    """创建创作者监控任务"""
     try:
         data = request.json
-        keywords = data.get("keywords", [])
-        platform = data.get("platform", "xiaohongshu")
+        creator_ids = data.get("creator_ids", [])
+
+        if not creator_ids:
+            return json(BaseResponse(
+                code=ErrorCode.INTERNAL_ERROR,
+                message="creator_ids 不能为空",
+                data=None
+            ).model_dump(), status=400)
 
         auth_info = request.ctx.auth_info
-        task_service = TaskService(request.app.ctx.playwright)
 
-        # 创建任务记录
-        task = await task_service.create_task(
-            source_id=auth_info.source_id,
-            task_type="trend_analysis",
-            config={
-                "keywords": keywords,
-                "platform": platform,
-                "depth": data.get("depth", "deep")
-            }
-        )
-
-        # 启动后台执行（直接调用现有 service）
-        from services.sniper.xhs_trend import XiaohongshuDeepAgent
+        # 启动后台执行
+        from services.sniper.xhs_creator import CreatorSniper
         background_task = asyncio.create_task(
-            _run_trend_analysis(task, request.app.ctx.playwright)
+            _run_creator_monitor(request.app.ctx.playwright, creator_ids, auth_info)
         )
-        task_service._running_tasks[str(task.id)] = background_task
 
         return json(BaseResponse(
             code=ErrorCode.SUCCESS,
             message="任务已创建",
             data={
-                "task_id": str(task.id),
-                "status": task.status,
-                "goal": f"分析关键词 {keywords} 的爆款趋势"
+                "message": f"创作者监控任务已在后台执行，监控 {len(creator_ids)} 个创作者"
+            }
+        ).model_dump())
+
+    except Exception as e:
+        logger.error(f"创建创作者监控任务失败: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=str(e),
+            data=None
+        ).model_dump(), status=500)
+
+
+async def _run_creator_monitor(playwright, creator_ids, auth_info):
+    """后台执行创作者监控"""
+    from services.sniper.xhs_creator import CreatorSniper
+    
+    try:
+        sniper = CreatorSniper(
+            source_id=auth_info.source_id,
+            source=auth_info.source.value,
+            playwright=playwright
+        )
+        
+        # 调用 monitor_creators 方法，内部会创建 Task 并管理状态
+        task, report = await sniper.monitor_creators(creator_ids)
+        logger.info(f"创作者监控任务完成: {task.id}")
+        logger.info(f"监控结果: 发现 {report.count('新增笔记')} 篇新笔记" if '新增笔记' in report else "监控完成")
+        
+    except Exception as e:
+        logger.error(f"创作者监控失败: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+@sniper_bp.post("/xhs-trend")
+async def create_trend_task(request: Request):
+    """创建趋势分析任务"""
+    try:
+        data = request.json
+        keywords = data.get("keywords", [])
+
+        auth_info = request.ctx.auth_info
+
+        from services.sniper.xhs_trend import XiaohongshuDeepAgent
+        background_task = asyncio.create_task(
+            _run_trend_analysis(request.app.ctx.playwright, keywords, auth_info)
+        )
+
+        return json(BaseResponse(
+            code=ErrorCode.SUCCESS,
+            message="任务已创建",
+            data={
+                "message": "趋势分析任务已在后台执行，请到任务列表查看"
             }
         ).model_dump())
 
@@ -61,70 +106,25 @@ async def create_trend_task(request: Request):
         ).model_dump(), status=500)
 
 
-async def _run_trend_analysis(task, playwright):
-    """后台执行趋势分析 - 记录每一步到 Task"""
+async def _run_trend_analysis(playwright, keywords, auth_info):
+    """后台执行趋势分析"""
     from services.sniper.xhs_trend import XiaohongshuDeepAgent
-    from services.connector_service import ConnectorService
-    from models.connectors import PlatformType
-
+    
     try:
-        await task.start()
-        config = task.config
-        keywords = config["keywords"]
-
-        # Step 1: 关键词裂变
         agent = XiaohongshuDeepAgent(
-            source_id=task.source_id,
+            source_id=auth_info.source_id,
+            source=auth_info.source.value,
             playwright=playwright,
             keywords=keywords[0] if keywords else ""
         )
-
-        search_keywords = await agent._generate_keywords()
-        await task.update_context("step_1_keywords", search_keywords)
-        await task.log_step(1, "关键词裂变",
-                           {"core_keyword": keywords[0]},
-                           {"keywords": search_keywords})
-        task.progress = 20
-        await task.save()
-
-        # Step 2: 搜索并去重
-        top_notes = await agent._run_search(search_keywords, limit=config.get("limit", 50))
-        await task.update_context("step_2_notes", top_notes)
-        await task.log_step(2, "搜索去重",
-                           {"keywords": search_keywords},
-                           {"unique_count": len(top_notes)})
-        task.progress = 50
-        await task.save()
-
-        # Step 3: 获取详情
-        details = await agent._fetch_details(top_notes)
-        await task.update_context("step_3_details", details)
-        await task.log_step(3, "获取详情",
-                           {"note_count": len(top_notes)},
-                           {"details_count": len(details)})
-        task.progress = 70
-        await task.save()
-
-        # Step 4: Agent 分析
-        prompt = f"任务词: {keywords}\n数据: {details}\n请分析爆款逻辑并给出建议。"
-        analysis_result = await agent.agent.arun(prompt)
-        analysis = analysis_result.content
-        await task.update_context("step_4_analysis", {"analysis": analysis})
-        await task.log_step(4, "Agent分析",
-                           {"data_size": len(details)},
-                           {"analysis_length": len(analysis)})
-        task.progress = 95
-        await task.save()
-
-        # 完成
-        await task.complete({
-            "summary": f"分析完成，共 {len(top_notes)} 篇笔记",
-            "analysis": analysis,
-            "keywords": search_keywords
-        })
-
+        
+        # 调用 analyze_trends 方法，内部会创建 Task 并管理状态
+        task_id = await agent.analyze_trends()
+        logger.info(f"趋势分析任务完成: {task_id}")
+        
     except Exception as e:
-        await task.fail(str(e), task.progress)
+        logger.error(f"趋势分析失败: {e}")
+        raise
 
 
 @sniper_bp.get("/task/<task_id:str>")

@@ -12,6 +12,7 @@ from playwright.async_api import async_playwright
 
 # 导入外部 Service
 from services.connector_service import ConnectorService
+from models.task import Task
 from utils.logger import logger
 
 # 1. 数据库连接
@@ -19,7 +20,7 @@ db = AsyncPostgresDb(
     db_url=f"postgresql+asyncpg://{global_settings.database.user}:{global_settings.database.password}@{global_settings.database.host}:{global_settings.database.port}/{global_settings.database.name}")
 
 # 2. 模型配置
-resoning_model = DashScope(
+reasoning_model = DashScope(
     base_url=global_settings.external_service.aliyun_base_url,
     api_key=global_settings.external_service.aliyun_api_key,
     id="qwen-max-latest",
@@ -37,12 +38,15 @@ class XiaohongshuDeepAgent:
     def __init__(
             self,
             source_id: str = "system_user",
+            source: str = "system",
             playwright: Any = None,
-            keywords: str = None
+            keywords: List[str] = None
     ):
-        self.connector_service = ConnectorService(source="system", source_id=source_id, playwright=playwright)
+        self.connector_service = ConnectorService(source=source, source_id=source_id, playwright=playwright)
         self.keywords = keywords
         self.current_date = datetime.now().strftime("%Y-%m-%d")
+        self.source = source
+        self.source_id = source_id
 
         # === 核心变化 1：Agent 不再挂载 tools ===
         # 它现在只是一个纯粹的分析大脑
@@ -65,7 +69,7 @@ class XiaohongshuDeepAgent:
         )
 
         # 用于生成关键词的小号 Agent (轻量级)
-        self.planner = Agent(model=resoning_model, description="关键词裂变助手")
+        self.planner = Agent(model=reasoning_model, description="关键词裂变助手")
 
     # === 核心变化 2：工具变成了普通的 Python 异步方法 ===
     # 这些方法不再被 Agent 自动调用，而是被 Python 逻辑显式调用
@@ -180,6 +184,90 @@ class XiaohongshuDeepAgent:
 
         return "\n\n".join(context_parts)
 
+    async def analyze_trends(self, source_id: str = None, source: str = None) -> tuple[Task, str]:
+        """
+        分析趋势 - 非流式版本，用于 API 调用
+        
+        Returns:
+            (Task, 分析结果)
+        """
+        source_id = source_id or self.source_id
+        source = source or self.source
+        
+        # 创建任务
+        task = await Task.create(
+            source=source,
+            source_id=source_id,
+            task_type="trend_analysis"
+        )
+        
+        try:
+            await task.start()
+            
+            # 记录初始参数
+            await task.log_step(0, "任务初始化", 
+                              {"keywords": self.keywords}, 
+                              {"task_id": str(task.id), "source": source})
+            task.progress = 10
+            await task.save()
+
+            # Step 1: 关键词裂变
+            search_keywords = await self._generate_keywords()
+            await task.log_step(1, "关键词裂变", 
+                              {"core_keyword": self.keywords}, 
+                              {"keywords": search_keywords})
+            task.progress = 25
+            await task.save()
+
+            # Step 2: 搜索并去重
+            top_notes = await self._run_search(search_keywords)
+            if not top_notes:
+                await task.fail("未搜索到有效数据", task.progress)
+                return task, ""
+                
+            await task.log_step(2, "搜索去重", 
+                              {"keywords": search_keywords}, 
+                              {"unique_count": len(top_notes)})
+            task.progress = 50
+            await task.save()
+
+            # Step 3: 获取详情
+            context_data = await self._fetch_details(top_notes)
+            await task.log_step(3, "获取详情", 
+                              {"note_count": len(top_notes)}, 
+                              {"context_length": len(context_data)})
+            task.progress = 70
+            await task.save()
+
+            # Step 4: Agent 分析
+            prompt = f"""
+            任务核心词：{self.keywords}
+
+            以下是我为你采集到的最新数据：
+            {context_data}
+
+            请根据 instructions 开始分析。
+            """
+            
+            analysis_result = await self.agent.arun(prompt)
+            analysis = analysis_result.content
+            
+            await task.log_step(4, "Agent分析", 
+                              {"data_size": len(context_data)}, 
+                              {"analysis_length": len(analysis)})
+            task.progress = 95
+            await task.save()
+
+            # AI Native: Agent 的分析结果本身就是自然语言，直接存储
+            # 无需额外格式化，LLM 生成的分析结果就是最适合 AI 阅读的格式
+            await task.complete({"analysis": analysis})
+            return task, analysis
+            
+        except Exception as e:
+            logger.error(f"趋势分析失败: {e}")
+            await task.fail(str(e), task.progress)
+            raise
+
     async def analyze_trends_stream(self):
         """
         流式任务入口 - 编排逻辑
@@ -216,8 +304,13 @@ class XiaohongshuDeepAgent:
                 yield chunk.content
 
 
-# --- 主程序 ---
+# ========== 脚本主程序 ==========
 async def main():
+    from tortoise import Tortoise
+    from config.settings import create_db_config
+
+    await Tortoise.init(config=create_db_config())
+
     start_time = datetime.now()
     print("=== 小红书多维爆款分析任务启动 ===", flush=True)
     print(f"⏰ 任务开始时间: {start_time.strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
@@ -227,7 +320,7 @@ async def main():
             analyzer = XiaohongshuDeepAgent(
                 source_id="system",
                 playwright=p,
-                keywords="agent面试"
+                keywords=["星星人"]
             )
 
             print(f"[核心词]: {analyzer.keywords}")

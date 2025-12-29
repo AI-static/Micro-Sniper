@@ -26,6 +26,7 @@ class XiaohongshuConnector(BaseConnector):
 
     def __init__(self, playwright):
         super().__init__(platform_name=PlatformType.XIAOHONGSHU, playwright=playwright)
+        self._login_tasks = {}
 
     @property
     def platform_name_str(self) -> str:
@@ -88,7 +89,7 @@ class XiaohongshuConnector(BaseConnector):
                 cdp = await browser.new_browser_cdp_session()
                 await cdp.send('Browser.close')
                 await asyncio.sleep(1)  # 给一点时间让 socket 关闭
-                browser.close()
+                await browser.close()
             if session:
                 # 默认 sync_context=True 以保存 Cookie 状态
                 await self.agent_bay.delete(session, sync_context=True)
@@ -219,7 +220,7 @@ class XiaohongshuConnector(BaseConnector):
             self,
             source: str = "default",
             source_id: str = "default",
-            timeout: int = 300
+            timeout: int = 60
     ) -> Dict[str, Any]:
         """二维码登录小红书
         
@@ -239,82 +240,23 @@ class XiaohongshuConnector(BaseConnector):
         """
         context_key = self._build_context_id(source, source_id)
         logger.info(f"[xiaohongshu] QRCode login with context_id: {context_key}")
-
-        # 先检查是否已经登录（通过创建新会话验证）
-        try:
-            context_res = await self.agent_bay.context.get(context_key, create=False)
-            if context_res.success and context_res.context:
-                # 创建临时 session 验证登录状态
-                verify_session_res = await self.agent_bay.create(
-                    CreateSessionParams(
-                        image_id="browser_latest",
-                        browser_context=BrowserContext(context_res.context.id, auto_upload=False)
-                    )
-                )
-                if verify_session_res.success:
-                    verify_session = verify_session_res.session
-                    browser_v = None
-                    try:
-                        await verify_session.browser.initialize(BrowserOption(
-                            screen=BrowserScreen(width=1920, height=1080),
-                            solve_captchas=True,
-                            use_stealth=True,
-                            fingerprint=BrowserFingerprint(
-                                devices=["desktop"],
-                                operating_systems=["windows"],
-                                locales=self.get_locale(),
-                            ),
-                        ))
-                        browser_v, context_v = await self._connect_cdp(verify_session)
-                        page = await context_v.new_page()
-                        
-                        await page.goto("https://www.xiaohongshu.com", timeout=30000)
-                        await asyncio.sleep(1)
-                        
-                        if await self._check_login_status(page):
-                            # 验证成功，已登录
-                            await self._cleanup_resources(verify_session, browser_v)
-                            return {
-                                "success": True,
-                                "context_id": context_key,
-                                "qrcode": "",
-                                "timeout": 0,
-                                "message": "Already logged in",
-                                "is_logged_in": True
-                            }
-                        
-                        # 未登录，继续执行下面的登录流程
-                        logger.info("[xiaohongshu] Context exists but not logged in, starting new login")
-                    except Exception as e:
-                        logger.debug(f"[xiaohongshu] Verify login status error: {e}")
-                    finally:
-                        # 清理验证会话
-                        if browser_v:
-                            try:
-                                await browser_v.close()
-                            except:
-                                pass
-                        try:
-                            await self.agent_bay.delete(verify_session, sync_context=False)
-                        except:
-                            pass
-        except Exception as e:
-            logger.debug(f"[xiaohongshu] Check existing context failed: {e}")
-
-        # 创建新的登录 Session
-        session_res = await self.agent_bay.create(
+        context_res = await self.agent_bay.context.get(context_key, create=False)
+        # 创建临时 session 验证登录状态
+        verify_session_res = await self.agent_bay.create(
             CreateSessionParams(
-                image_id="browser_latest"
+                image_id="browser_latest",
+                browser_context=BrowserContext(context_res.context.id, auto_upload=False)
             )
         )
-        if not session_res.success:
-            raise ValueError(f"Failed to create session: {session_res.error_message}")
+        if not verify_session_res.success:
+            raise ValueError("Failed to get qrcode image")
+        verify_session = verify_session_res.session
 
-        session = session_res.session
-        browser = None
-
+        browser_v = None
+        context_v = None
+        # 先检查是否已经登录（通过创建新会话验证）
         try:
-            await session.browser.initialize(BrowserOption(
+            await verify_session.browser.initialize(BrowserOption(
                 screen=BrowserScreen(width=1920, height=1080),
                 solve_captchas=True,
                 use_stealth=True,
@@ -324,17 +266,13 @@ class XiaohongshuConnector(BaseConnector):
                     locales=self.get_locale(),
                 ),
             ))
-            browser, context_p = await self._connect_cdp(session)
-            page = await context_p.new_page()
-
-            # 导航到小红书首页触发二维码
-            await page.goto("https://www.xiaohongshu.com/explore", timeout=60000)
-            await asyncio.sleep(2)
-
-            # 检查是否已经登录
+            browser_v, context_v = await self._connect_cdp(verify_session)
+            page = await context_v.new_page()
+            await page.goto("https://www.xiaohongshu.com/explore", timeout=30000)
+            await asyncio.sleep(1)
             if await self._check_login_status(page):
-                logger.info("[xiaohongshu] Already logged in")
-                await self._cleanup_resources(session, browser)
+                # 验证成功，已登录
+                await self._cleanup_resources(verify_session, browser_v)
                 return {
                     "success": True,
                     "context_id": context_key,
@@ -343,24 +281,26 @@ class XiaohongshuConnector(BaseConnector):
                     "message": "Already logged in",
                     "is_logged_in": True
                 }
+            # 未登录，继续执行下面的登录流程
+            logger.info("[xiaohongshu] Context exists but not logged in, starting new login")
 
             # 获取二维码图片
-            qrcode_url = await self._get_qrcode_image(page, source, source_id)
+            # qrcode_url = await self._get_qrcode_image(page, source, source_id)
+            qrcode_url = verify_session.resource_url
+            # qrcode_url = verify_session_res.session
             if not qrcode_url:
                 await self._cleanup_resources(session, browser)
                 raise ValueError("Failed to get qrcode image")
-
             logger.info("[xiaohongshu] QRCode generated, waiting for scan...")
-
-            # 启动后台任务等待扫码（不阻塞响应）
-            asyncio.create_task(self._wait_for_login_and_save(
-                session=session,
-                browser=browser,
+            # 启动后台任务：等待扫码后优雅关闭
+            task = asyncio.create_task(self._wait_and_cleanup_after_scan(
+                session=verify_session,
+                browser=browser_v,
                 page=page,
                 context_key=context_key,
                 timeout=timeout
             ))
-
+            self._login_tasks[context_key] = task
             # 立即返回二维码（不等待扫码完成）
             return {
                 "success": True,
@@ -370,13 +310,13 @@ class XiaohongshuConnector(BaseConnector):
                 "message": "QRCode generated, waiting for scan",
                 "is_logged_in": False
             }
-
         except Exception as e:
-            logger.error(f"[xiaohongshu] QRCode login failed: {e}")
-            await self._cleanup_resources(session, browser)
-            raise
+            logger.debug(f"[xiaohongshu] Check existing context failed: {e}")
+            await self._cleanup_resources(verify_session, browser_v)
+            await self.agent_bay.delete(verify_session, sync_context=False)
 
-    async def _wait_for_login_and_save(
+
+    async def _wait_and_cleanup_after_scan(
             self,
             session: Any,
             browser: Any,
@@ -384,42 +324,21 @@ class XiaohongshuConnector(BaseConnector):
             context_key: str,
             timeout: int
     ):
-        """后台任务：等待扫码登录并保存到 Context"""
-        logger.info(f"[xiaohongshu] Background task: waiting for login (timeout={timeout}s)")
+        """后台任务：等待60秒后优雅关闭并落盘上下文"""
+        logger.info(f"[xiaohongshu] Background task: waiting 60s before cleanup")
         
         try:
-            # 每 5 秒检查一次登录状态
-            for i in range(timeout // 5):
-                try:
-                    if await self._check_login_status(page):
-                        logger.info("[xiaohongshu] Login successful! Saving cookies to context...")
-                        
-                        # 登录成功，保存到 Context
-                        context_res = await self.agent_bay.context.get(context_key, create=True)
-                        if context_res.success:
-                            # 关闭浏览器时自动同步 cookies 到 context
-                            await self._cleanup_resources(session, browser)
-                            logger.info(f"[xiaohongshu] Cookies saved to context: {context_key}")
-                        else:
-                            logger.error(f"[xiaohongshu] Failed to get context: {context_res.error_message}")
-                            await self._cleanup_resources(session, browser)
-                        return
-                except Exception as e:
-                    error_msg = str(e)
-                    # 如果是 Session 失效错误，直接退出
-                    if "no alive session" in error_msg or "SessionHandleError" in error_msg:
-                        logger.warning(f"[xiaohongshu] Session no longer alive, stopping login wait")
-                        return
-                    logger.warning(f"[xiaohongshu] Check login status error: {e}")
-                
-                await asyncio.sleep(5)
+            # 直接等待60秒，让用户扫码并让页面完全稳定
+            await asyncio.sleep(120)
             
-            # 超时
-            logger.warning(f"[xiaohongshu] Login timeout after {timeout}s")
+            logger.info(f"[xiaohongshu] Saving context and cleaning up: {context_key}")
+            
+            # 优雅关闭浏览器，自动同步 cookies 到 context
             await self._cleanup_resources(session, browser)
+            logger.info(f"[xiaohongshu] Context saved successfully")
             
         except Exception as e:
-            logger.error(f"[xiaohongshu] Background login task error: {e}")
+            logger.error(f"[xiaohongshu] Background task error: {e}")
             await self._cleanup_resources(session, browser)
 
     async def _get_qrcode_image(self, page: Page, source: str = "default", source_id: str = "default") -> Optional[str]:
