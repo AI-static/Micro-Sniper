@@ -298,25 +298,128 @@ async def login(request: Request):
 
 @connectors_bp.get("/platforms")
 async def list_platforms(request: Request):
-    """获取支持的平台列表"""
+    """获取支持的平台列表 - 展示多平台连接能力"""
     platforms = [
         {
             "name": PlatformType.XIAOHONGSHU.value,
             "display_name": "小红书",
-            "features": ["extract", "harvest", "publish", "login"],
-            "description": "小红书平台连接器，支持内容提取、发布、采收"
+            "icon": "📕",
+            "category": "社交内容",
+            "features": {
+                "extract": {
+                    "enabled": True,
+                    "description": "AI 驱动的内容摘要提取",
+                    "modes": ["stream", "batch"]
+                },
+                "get_note_detail": {
+                    "enabled": True,
+                    "description": "快速获取笔记详情（CDP 直连）",
+                    "performance": "~2-5秒/篇"
+                },
+                "harvest": {
+                    "enabled": True,
+                    "description": "批量采收用户主页内容",
+                    "max_limit": 100
+                },
+                "search": {
+                    "enabled": True,
+                    "description": "关键词搜索并提取"
+                },
+                "publish": {
+                    "enabled": True,
+                    "description": "发布内容到平台",
+                    "supported_types": ["text", "image", "video"]
+                },
+                "login": {
+                    "enabled": True,
+                    "methods": ["cookie", "qrcode"],
+                    "description": "支持 Cookie 和二维码登录"
+                }
+            },
+            "rate_limits": {
+                "get_note_detail": "10次/60秒",
+                "harvest": "5次/60秒",
+                "search": "10次/60秒",
+                "publish": "2次/60秒"
+            },
+            "domain_patterns": ["xiaohongshu.com", "xhslink.com"]
         },
         {
             "name": PlatformType.WECHAT.value,
             "display_name": "微信公众号",
-            "features": ["extract_summary", "get_note_detail", "harvest"],
-            "description": "微信公众号连接器，支持文章摘要提取、详情获取、采收"
+            "icon": "💬",
+            "category": "内容平台",
+            "features": {
+                "extract": {
+                    "enabled": True,
+                    "description": "AI 驱动的文章摘要提取",
+                    "modes": ["stream", "batch"]
+                },
+                "get_note_detail": {
+                    "enabled": True,
+                    "description": "快速获取文章详情（CDP 直连）",
+                    "performance": "~2-5秒/篇"
+                },
+                "harvest": {
+                    "enabled": True,
+                    "description": "批量采收公众号文章",
+                    "max_limit": 100
+                },
+                "search": {
+                    "enabled": False,
+                    "description": "暂不支持"
+                },
+                "publish": {
+                    "enabled": False,
+                    "description": "暂不支持"
+                },
+                "login": {
+                    "enabled": False,
+                    "description": "无需登录（公开文章）"
+                }
+            },
+            "rate_limits": {
+                "get_note_detail": "10次/60秒",
+                "harvest": "5次/60秒"
+            },
+            "domain_patterns": ["mp.weixin.qq.com"]
         },
         {
             "name": PlatformType.GENERIC.value,
             "display_name": "通用网站",
-            "features": ["extract"],
-            "description": "通用网站连接器，支持任意网站的内容提取"
+            "icon": "🌐",
+            "category": "通用工具",
+            "features": {
+                "extract": {
+                    "enabled": True,
+                    "description": "AI 驱动的通用内容提取",
+                    "modes": ["stream", "batch"]
+                },
+                "get_note_detail": {
+                    "enabled": False,
+                    "description": "暂不支持"
+                },
+                "harvest": {
+                    "enabled": False,
+                    "description": "暂不支持"
+                },
+                "search": {
+                    "enabled": False,
+                    "description": "暂不支持"
+                },
+                "publish": {
+                    "enabled": False,
+                    "description": "暂不支持"
+                },
+                "login": {
+                    "enabled": False,
+                    "description": "暂不支持"
+                }
+            },
+            "rate_limits": {
+                "extract": "10次/60秒"
+            },
+            "domain_patterns": ["*"]
         }
     ]
 
@@ -325,7 +428,15 @@ async def list_platforms(request: Request):
         message="获取平台列表成功",
         data={
             "platforms": platforms,
-            "total": len(platforms)
+            "total": len(platforms),
+            "summary": {
+                "supported_platforms": len(platforms),
+                "content_extraction": sum(1 for p in platforms if p["features"]["extract"]["enabled"]),
+                "detail_fetching": sum(1 for p in platforms if p["features"]["get_note_detail"]["enabled"]),
+                "harvest": sum(1 for p in platforms if p["features"]["harvest"]["enabled"]),
+                "publish": sum(1 for p in platforms if p["features"]["publish"]["enabled"]),
+                "search": sum(1 for p in platforms if p["features"]["search"]["enabled"])
+            }
         }
     ).model_dump())
 

@@ -63,7 +63,7 @@ class XiaohongshuDeepAgent:
                 "1. **深度解码**：分析笔记标题如何制造焦虑/期待？首图有何视觉吸睛点？评论区痛点是什么？",
                 "2. **输出爆款的详细信息**：基于数据，给出原文数据与爆款分析。",
                 "3. **输出行动指南**：基于数据，生成 3 个具体的爆款选题方案和建议。",
-                "4. **证据链条**：重要！在分析每个观点时，必须引用具体笔记的完整URL（full_url）作为证据，让分析可追溯。"
+                "4. **证据链条**：重要！在分析每个观点时，必须引用具体笔记的完整URL（字段full_url）作为证据，让分析可追溯。"
             ],
             db=db,
             markdown=True,
@@ -172,11 +172,24 @@ class XiaohongshuDeepAgent:
             }
         )
 
-        # get_note_details 返回: [{url, success, data, method}, ...]
-        details_results = await connector_service.get_note_details(
-            urls=urls,
-            platform=PlatformType.XIAOHONGSHU
-        )
+        # 分批获取笔记详情，避免浏览器拨打过快
+        batch_size = 3
+        all_details_results = []
+
+        for i in range(0, len(urls), batch_size):
+            batch_urls = urls[i:i + batch_size]
+            logger.info(f"正在处理批次 {i//batch_size + 1}, URLs: {batch_urls}")
+
+            batch_results = await connector_service.get_note_details(
+                urls=batch_urls,
+                platform=PlatformType.XIAOHONGSHU,
+                concurrency=2  # 每批内部并发2个
+            )
+
+            all_details_results.extend(batch_results)
+            logger.info(f"批次 {i//batch_size + 1} 完成，获取 {len(batch_results)} 个结果")
+
+        details_results = all_details_results
 
         # 构建 url -> detail 映射
         details_map = {}
@@ -431,10 +444,24 @@ class XiaohongshuDeepAgent:
         urls = [n.get("full_url") for n in notes if n.get("full_url")]
         logger.info(f"正在抓取详情，共 {len(urls)} 篇")
 
-        details_results = await connector_service.get_note_details(
-            urls=urls,
-            platform=PlatformType.XIAOHONGSHU
-        )
+        # 分批获取笔记详情，避免浏览器拨打过快
+        batch_size = 3
+        all_details_results = []
+
+        for i in range(0, len(urls), batch_size):
+            batch_urls = urls[i:i + batch_size]
+            logger.info(f"正在处理批次 {i//batch_size + 1}, URLs: {batch_urls}")
+
+            batch_results = await connector_service.get_note_details(
+                urls=batch_urls,
+                platform=PlatformType.XIAOHONGSHU,
+                concurrency=2  # 每批内部并发2个
+            )
+
+            all_details_results.extend(batch_results)
+            logger.info(f"批次 {i//batch_size + 1} 完成，获取 {len(batch_results)} 个结果")
+
+        details_results = all_details_results
 
         # 构建 url -> detail 映射
         details_map = {}
