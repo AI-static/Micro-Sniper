@@ -45,10 +45,7 @@ class Task(Model):
     result = JSONField(null=True, description="任务最终结果（AI可读的自然语言格式）")
     error = TextField(null=True, description="错误信息（自然语言描述）")
 
-    # 共享上下文 - 执行过程中的中间数据
-    shared_context = JSONField(default=lambda : {}, description="共享上下文，存储执行过程中的中间数据")
-
-    # 执行日志 - 记录每一步的输入输出
+    # 执行日志 - 记录每一步的输入输出（本身就是上下文）
     logs = JSONField(default=lambda : [], description="执行日志，记录每一步的详细信息")
 
     # 时间戳
@@ -96,12 +93,12 @@ class Task(Model):
         self.completed_at = datetime.now()
         await self.save()
 
-    # ===== 日志和上下文管理方法 =====
+    # ===== 日志管理方法 =====
 
     async def log_step(self, step: int, name: str, input_data: dict, output_data: dict, status: str = "completed"):
         """
         记录一步执行
-        
+
         Args:
             step: 步骤编号
             name: 步骤名称
@@ -118,17 +115,6 @@ class Task(Model):
             "status": status
         }
         self.logs.append(log_entry)
-        await self.save()
-
-    async def update_context(self, key: str, value: any):
-        """
-        更新共享上下文
-        
-        Args:
-            key: 上下文键
-            value: 上下文值
-        """
-        self.shared_context[key] = value
         await self.save()
 
     # ===== AI 可读格式转换 =====
@@ -173,7 +159,6 @@ class Task(Model):
             "progress": self.progress,
             "summary": "\n".join(summary_parts),
             "logs": self.logs,
-            "shared_context": self.shared_context,
             "result": self.result,
             "error": self.error,
             "created_at": self.created_at.isoformat() if self.created_at else None,

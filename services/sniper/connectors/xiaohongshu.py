@@ -569,7 +569,7 @@ class XiaohongshuConnector(BaseConnector):
             page = await context.new_page()
             try:
                 await page.goto(url, timeout=60000)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(2)
 
                 data = await self._get_note_detail_evaluate(page)
                 return {
@@ -747,19 +747,25 @@ class XiaohongshuConnector(BaseConnector):
         card = feed.get("noteCard", {})
         note_id = feed.get("id")
         xsec_token = feed.get("xsecToken", "")
-        
+
         base_url = f"https://www.xiaohongshu.com/explore/{note_id}"
         full_url = base_url
         if xsec_token:
             full_url = f"{base_url}?xsec_token={xsec_token}&xsec_source=pc_feed"
-        
+
+        interact_info = card.get("interactInfo", {})
+        corner = card.get("corner", {})
+
         return {
             "note_id": note_id,
             "title": card.get("displayTitle", ""),
             "url": base_url,
             "full_url": full_url,
-            "liked_count": card.get("interactInfo", {}).get("likedCount", "0"),
-            "cover": card.get("cover", {}).get("urlDefault", ""),
+            # 外层保留常用字段，方便其他代码使用
+            "liked_count": interact_info.get("likedCount", "0"),
+            "cover": card.get("cover", {}),
+            # 置顶信息
+            "is_pinned": interact_info.get("sticky"),
             "user": {
                 "id": card.get("user", {}).get("userId"),
                 "name": card.get("user", {}).get("nickname")
@@ -792,6 +798,8 @@ class XiaohongshuConnector(BaseConnector):
 
                     const noteId = feed.id;
                     const xsecToken = feed.xsecToken || '';
+                    const interactInfo = feed.noteCard.interactInfo || {{}};
+
                     const baseUrl = `https://www.xiaohongshu.com/explore/${{noteId}}`;
                     let fullUrl = baseUrl;
                     if (xsecToken) {{
@@ -803,14 +811,15 @@ class XiaohongshuConnector(BaseConnector):
                         title: feed.noteCard.displayTitle,
                         url: baseUrl,
                         full_url: fullUrl,
-                        type: feed.noteCard.type,
-                        cover: feed.noteCard.cover?.urlDefault || '',
-                        liked_count: feed.noteCard.interactInfo?.likedCount || 0,
-                        collected_count: feed.noteCard.interactInfo?.collectedCount || 0,
-                        comment_count: feed.noteCard.interactInfo?.commentCount || 0,
-                        user_id: feed.noteCard.user?.userId || '',
-                        user_nickname: feed.noteCard.user?.nickname || '',
-                        user_avatar: feed.noteCard.user?.avatar || ''
+                        // 外层保留常用字段，方便其他代码使用
+                        liked_count: interactInfo.likedCount || '0',
+                        cover: feed.noteCard.cover || {{}},
+                        // 置顶信息
+                        is_pinned: interactInfo.sticky || false,
+                        user: {{
+                            id: feed.noteCard.user?.userId || '',
+                            name: feed.noteCard.user?.nickname || ''
+                        }}
                     }});
                 }}
             }}

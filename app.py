@@ -104,8 +104,13 @@ def setup_playwright(app: Sanic):
 
     @app.before_server_stop
     async def cleanup_playwright(app: Sanic, loop):
-        """清理 Playwright 资源"""
+        """清理 Playwright 资源和分布式锁"""
         logger.info("🎭 清理 Playwright 资源...")
         if hasattr(app.ctx, 'playwright'):
             await app.ctx.playwright.stop()
             logger.info("✅ Playwright 资源已清理")
+
+        # 清理所有活跃任务的分布式锁
+        from services.connector_service import ConnectorService
+        await ConnectorService.cleanup_all_locks()
+        logger.info("✅ 分布式锁已清理")

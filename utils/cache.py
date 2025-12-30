@@ -49,23 +49,29 @@ def get_redis() -> aioredis.Redis:
 
 class DistributedLock:
     """分布式锁实现 - 防止死锁设计
-    
+
     安全特性：
     1. 使用唯一值标识锁持有者，防止误删
     2. Redis 自动过期 (ex) 防止死锁
     3. Lua 脚本保证原子性
     4. 异常安全：release 失败也会重置状态
+    5. 支持 task_id 标识，允许同一任务重启时重新获取锁
     """
-    
+
     def __init__(
         self,
         redis_client: aioredis.Redis,
         key: str,
+        task_id: str,
         timeout: float = 30.0
     ):
         self.redis = redis_client
+        # key 格式：lock:{source}:{source_id}:{platform}:{operation}
+        # 不包含 task_id，使得锁的粒度是用户级别的
+        # task_id 仅存储在锁值中，用于追踪
         self.key = f"lock:{key}"
         self.timeout = timeout
+        self.task_id = task_id
         self._lock_value: Optional[str] = None
         self._acquired = False
     
@@ -81,26 +87,37 @@ class DistributedLock:
         """获取锁"""
         if self._acquired:
             return True
-        
+
         import uuid
-        self._lock_value = str(uuid.uuid4())
-        
+        import json
+
+        # 构建锁值，包含 uuid 和 task_id
+        lock_data = {
+            "uuid": str(uuid.uuid4()),
+            "task_id": self.task_id
+        }
+        self._lock_value = json.dumps(lock_data)
+
         try:
+            # 尝试获取锁
             acquired = await self.redis.set(
                 self.key,
                 self._lock_value.encode(),
                 nx=True,
                 ex=int(self.timeout)
             )
-            
+
             if acquired:
                 self._acquired = True
-                logger.debug(f"Lock acquired: {self.key}")
+                logger.debug(f"Lock acquired: {self.key}, task_id={self.task_id}")
                 return True
-            
+
+            # 锁已被持有，直接返回失败
+            logger.debug(f"Lock acquisition failed: {self.key}")
             return False
+
         except Exception as e:
-            logger.error(f"Failed to acquire lock {self.key}: {e}")
+            logger.error(f"获取锁失败，正在有任务运行，请稍后再试。 {self.key}: {e}")
             return False
     
     async def release(self):
@@ -140,7 +157,7 @@ class RateLimiter:
         self,
         redis_client: aioredis.Redis,
         key: str,
-        max_requests: int,
+        max_requests: str,
         window: int
     ):
         self.redis = redis_client
@@ -180,29 +197,37 @@ class RateLimiter:
 @asynccontextmanager
 async def distributed_lock(
     key: str,
+    task_id: str,
     timeout: float = 30.0,
-    redis_client: Optional[aioredis.Redis] = None
+    redis_client: aioredis.Redis = None
 ):
     """分布式锁上下文管理器 - 异常安全
-    
+
     保证锁一定会被释放，即使发生异常：
     1. 使用 finally 块确保释放
     2. release() 内部有异常处理
     3. Redis 自动过期防止死锁
+    4. 锁键包含 task_id，便于按任务清理
+
+    Args:
+        key: 锁的键
+        task_id: 任务ID（必填）
+        timeout: 锁超时时间（秒）
+        redis_client: Redis 客户端
     """
     if redis_client is None:
         redis_client = get_redis()
-    
+
     lock = None
     acquired = False
-    
+
     try:
-        lock = DistributedLock(redis_client, key, timeout=timeout)
+        lock = DistributedLock(redis_client, key, task_id=task_id, timeout=timeout)
         acquired = await lock.acquire()
-        
+
         if not acquired:
             raise Exception(f"Failed to acquire lock: {key}")
-        
+
         yield lock
     except Exception as e:
         logger.error(f"Exception in lock context {key}: {e}")
@@ -217,7 +242,7 @@ async def distributed_lock(
 
 async def check_rate_limit(
     key: str,
-    max_requests: int,
+    max_requests: str,
     window: int,
     redis_client: Optional[aioredis.Redis] = None
 ) -> bool:
@@ -267,9 +292,6 @@ def with_lock_and_rate_limit(
                 async with distributed_lock(key, lock_timeout, redis_client):
                     return await func(self, *args, **kwargs)
             except Exception as e:
-                if "Failed to acquire lock" in str(e):
-                    logger.warning(f"Lock acquisition failed for {key}")
-                    raise Exception(f"Operation {op_name} is already in progress")
                 raise
         
         return wrapper

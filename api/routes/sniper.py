@@ -7,13 +7,13 @@ import ujson as json_lib
 import asyncio
 
 from api.schema.base import BaseResponse, ErrorCode
-from services.sniper.task_service import TaskService
+from services.task_service import TaskService
 from utils.logger import logger
 
 sniper_bp = Blueprint("sniper", url_prefix="/sniper")
 
 
-@sniper_bp.post("/xhs-creator")
+@sniper_bp.post("/xhs/harvest")
 async def create_creator_task(request: Request):
     """创建创作者监控任务"""
     try:
@@ -29,16 +29,32 @@ async def create_creator_task(request: Request):
 
         auth_info = request.ctx.auth_info
 
-        # 启动后台执行
+        # 先创建 Task，获取 task_id
+        from models.task import Task
         from services.sniper.xhs_creator import CreatorSniper
-        background_task = asyncio.create_task(
-            _run_creator_monitor(request.app.ctx.playwright, creator_ids, auth_info)
+
+        sniper = CreatorSniper(
+            source_id=auth_info.source_id,
+            source=auth_info.source.value,
+            playwright=request.app.ctx.playwright
         )
+
+        # 创建并启动任务
+        task = await Task.create(
+            source=auth_info.source.value,
+            source_id=auth_info.source_id,
+            task_type="creator_monitor"
+        )
+        await task.start()
+
+        # 启动后台任务，传入已创建的 task 对象
+        asyncio.create_task(sniper.monitor_creators(creator_ids, task=task))
 
         return json(BaseResponse(
             code=ErrorCode.SUCCESS,
             message="任务已创建",
             data={
+                "task_id": str(task.id),
                 "message": f"创作者监控任务已在后台执行，监控 {len(creator_ids)} 个创作者"
             }
         ).model_dump())
@@ -52,79 +68,60 @@ async def create_creator_task(request: Request):
         ).model_dump(), status=500)
 
 
-async def _run_creator_monitor(playwright, creator_ids, auth_info):
-    """后台执行创作者监控"""
-    from services.sniper.xhs_creator import CreatorSniper
-    
-    try:
-        sniper = CreatorSniper(
-            source_id=auth_info.source_id,
-            source=auth_info.source.value,
-            playwright=playwright
-        )
-        
-        # 调用 monitor_creators 方法，内部会创建 Task 并管理状态
-        task, report = await sniper.monitor_creators(creator_ids)
-        logger.info(f"创作者监控任务完成: {task.id}")
-        logger.info(f"监控结果: 发现 {report.count('新增笔记')} 篇新笔记" if '新增笔记' in report else "监控完成")
-        
-    except Exception as e:
-        logger.error(f"创作者监控失败: {e}")
-        import traceback
-        traceback.print_exc()
-        raise
-
-
-@sniper_bp.post("/xhs-trend")
+@sniper_bp.post("/xhs/trend")
 async def create_trend_task(request: Request):
     """创建趋势分析任务"""
     try:
         data = request.json
         keywords = data.get("keywords", [])
 
+        if not keywords:
+            return json(BaseResponse(
+                code=ErrorCode.INTERNAL_ERROR,
+                message="keywords 不能为空",
+                data=None
+            ).model_dump(), status=400)
+
         auth_info = request.ctx.auth_info
 
+        # 先创建 Task，获取 task_id
+        from models.task import Task
         from services.sniper.xhs_trend import XiaohongshuDeepAgent
-        background_task = asyncio.create_task(
-            _run_trend_analysis(request.app.ctx.playwright, keywords, auth_info)
+
+        agent = XiaohongshuDeepAgent(
+            source_id=auth_info.source_id,
+            source=auth_info.source.value,
+            playwright=request.app.ctx.playwright,
+            keywords=keywords
         )
+
+        # 创建并启动任务
+        task = await Task.create(
+            source=auth_info.source.value,
+            source_id=auth_info.source_id,
+            task_type="trend_analysis"
+        )
+        await task.start()
+
+        # 启动后台任务，传入已创建的 task 对象
+        asyncio.create_task(agent.analyze_trends(task=task))
 
         return json(BaseResponse(
             code=ErrorCode.SUCCESS,
             message="任务已创建",
             data={
-                "message": "趋势分析任务已在后台执行，请到任务列表查看"
+                "task_id": str(task.id),
+                "message": f"趋势分析任务已在后台执行，关键词: {keywords}"
             }
         ).model_dump())
 
     except Exception as e:
-        logger.error(f"创建任务失败: {e}")
+        logger.error(f"创建趋势分析任务失败: {e}")
         return json(BaseResponse(
             code=ErrorCode.INTERNAL_ERROR,
             message=str(e),
             data=None
         ).model_dump(), status=500)
-
-
-async def _run_trend_analysis(playwright, keywords, auth_info):
-    """后台执行趋势分析"""
-    from services.sniper.xhs_trend import XiaohongshuDeepAgent
-    
-    try:
-        agent = XiaohongshuDeepAgent(
-            source_id=auth_info.source_id,
-            source=auth_info.source.value,
-            playwright=playwright,
-            keywords=keywords[0] if keywords else ""
-        )
-        
-        # 调用 analyze_trends 方法，内部会创建 Task 并管理状态
-        task_id = await agent.analyze_trends()
-        logger.info(f"趋势分析任务完成: {task_id}")
-        
-    except Exception as e:
-        logger.error(f"趋势分析失败: {e}")
-        raise
 
 
 @sniper_bp.get("/task/<task_id:str>")

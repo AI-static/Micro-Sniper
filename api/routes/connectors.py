@@ -6,13 +6,14 @@ from sanic import Blueprint, Request
 from sanic.response import json, ResponseStream
 import ujson as json_lib
 import asyncio
-from services.connector_service import ConnectorService
+from services.sniper.connectors import ConnectorService
 from utils.logger import logger
 from utils.exceptions import BusinessException, RateLimitException, LockConflictException, ContextNotFoundException
 from api.schema.base import BaseResponse, ErrorCode, ErrorMessage
 from api.schema.connectors import ExtractRequest, HarvestRequest, PublishRequest, LoginRequest, SearchRequest
 from pydantic import BaseModel, Field, ValidationError
 from models.connectors import PlatformType, LoginMethod
+from models.task import Task
 
 # 创建蓝图
 connectors_bp = Blueprint("connectors", url_prefix="/connectors")
@@ -67,52 +68,68 @@ async def harvest_content(request: Request):
 
         # 获取认证上下文
         auth_info = request.ctx.auth_info
-        connector_service = ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id)
 
-        results = await connector_service.harvest_user_content(
-            platform=data.platform,
-            creator_ids=data.creator_ids,
-            limit=data.limit
+        # 创建并启动任务
+        task = await Task.create(
+            source=auth_info.source.value,
+            source_id=auth_info.source_id,
+            task_type="harvest_content"
         )
-        
-        # 重组结果：按 creator_id 分组
-        results_by_creator = {}
-        successful_creators = 0
-        failed_creators = 0
-        total_notes = 0
-        
-        for result in results:
-            creator_id = result.get("creator_id")
-            if creator_id:
-                if result.get("success"):
-                    notes = result.get("data", [])
-                    results_by_creator[creator_id] = {
-                        "success": True,
-                        "note_count": len(notes),
-                        "notes": notes
-                    }
-                    successful_creators += 1
-                    total_notes += len(notes)
-                else:
-                    results_by_creator[creator_id] = {
-                        "success": False,
-                        "error": result.get("error"),
-                        "note_count": 0,
-                        "notes": []
-                    }
-                    failed_creators += 1
+        await task.start()
 
-        return json(BaseResponse(
-            code=ErrorCode.SUCCESS,
-            message=f"采收完成：{successful_creators}/{len(data.creator_ids)} 个创作者成功，共 {total_notes} 条笔记",
-            data={
+        async with ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id, task=task) as connector_service:
+            results = await connector_service.harvest_user_content(
+                platform=data.platform,
+                creator_ids=data.creator_ids,
+                limit=data.limit
+            )
+
+            # 重组结果：按 creator_id 分组
+            results_by_creator = {}
+            successful_creators = 0
+            failed_creators = 0
+            total_notes = 0
+
+            for result in results:
+                creator_id = result.get("creator_id")
+                if creator_id:
+                    if result.get("success"):
+                        notes = result.get("data", [])
+                        results_by_creator[creator_id] = {
+                            "success": True,
+                            "note_count": len(notes),
+                            "notes": notes
+                        }
+                        successful_creators += 1
+                        total_notes += len(notes)
+                    else:
+                        results_by_creator[creator_id] = {
+                            "success": False,
+                            "error": result.get("error"),
+                            "note_count": 0,
+                            "notes": []
+                        }
+                        failed_creators += 1
+
+            # 完成任务
+            await task.complete({
                 "total_creators": len(data.creator_ids),
                 "successful_creators": successful_creators,
-                "failed_creators": failed_creators,
-                "total_notes": total_notes,
-                "results": results_by_creator
-            }
-        ).model_dump())
+                "total_notes": total_notes
+            })
+
+            return json(BaseResponse(
+                code=ErrorCode.SUCCESS,
+                message=f"采收完成：{successful_creators}/{len(data.creator_ids)} 个创作者成功，共 {total_notes} 条笔记",
+                data={
+                    "task_id": str(task.id),
+                    "total_creators": len(data.creator_ids),
+                    "successful_creators": successful_creators,
+                    "failed_creators": failed_creators,
+                    "total_notes": total_notes,
+                    "results": results_by_creator
+                }
+            ).model_dump())
 
     except ValidationError as e:
         logger.error(f"参数验证失败: {e}")
@@ -146,21 +163,35 @@ async def publish_content(request: Request):
 
         # 获取认证上下文
         auth_info = request.ctx.auth_info
-        connector_service = ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id)
 
-        result = await connector_service.publish_content(
-            platform=data.platform,
-            content=data.content,
-            content_type=data.content_type,
-            images=data.images or [],
-            tags=data.tags or []
+        # 创建并启动任务
+        task = await Task.create(
+            source=auth_info.source.value,
+            source_id=auth_info.source_id,
+            task_type="publish_content"
         )
+        await task.start()
 
-        return json(BaseResponse(
-            code=ErrorCode.SUCCESS if result.get("success") else ErrorCode.INTERNAL_ERROR,
-            message="发布成功" if result.get("success") else "发布失败",
-            data=result
-        ).model_dump())
+        async with ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id, task=task) as connector_service:
+            result = await connector_service.publish_content(
+                platform=data.platform,
+                content=data.content,
+                content_type=data.content_type,
+                images=data.images or [],
+                tags=data.tags or []
+            )
+
+            # 完成任务
+            await task.complete({"success": result.get("success", False)})
+
+            return json(BaseResponse(
+                code=ErrorCode.SUCCESS if result.get("success") else ErrorCode.INTERNAL_ERROR,
+                message="发布成功" if result.get("success") else "发布失败",
+                data={
+                    "task_id": str(task.id),
+                    **result
+                }
+            ).model_dump())
 
     except ValidationError as e:
         logger.error(f"参数验证失败: {e}")
@@ -194,40 +225,53 @@ async def login(request: Request):
 
         # 获取认证上下文
         auth_info = request.ctx.auth_info
-        connector_service = ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id)
-        
-        logger.info(f"[Auth] 从认证上下文获取: 鉴权数据AuthInfo: {auth_info.source}")
 
-        # 调用 connector_service 的 login 方法
-        result = await connector_service.login(
-            platform=data.platform,
-            method=data.method,
-            cookies=data.cookies or {}
+        # 创建并启动任务
+        task = await Task.create(
+            source=auth_info.source.value,
+            source_id=auth_info.source_id,
+            task_type="login"
         )
+        await task.start()
 
-        # 根据登录方法处理不同返回格式
-        if data.method == LoginMethod.QRCODE:
-            # 二维码登录返回字典，包含 qrcode, context_id, is_logged_in 等
-            return json(BaseResponse(
-                code=ErrorCode.SUCCESS if result.get("success") else ErrorCode.INTERNAL_ERROR,
-                message=result.get("message", "登录请求处理完成"),
-                data={
-                    **result,  # 包含 qrcode, context_id, is_logged_in, timeout 等
-                    "source": auth_info.source,
-                    "source_id": auth_info.source_id
-                }
-            ).model_dump())
-        else:
-            # Cookie 登录返回 context_id 字符串
-            return json(BaseResponse(
-                code=ErrorCode.SUCCESS if result else ErrorCode.INTERNAL_ERROR,
-                message="登录成功" if result else "登录失败",
-                data={
-                    "context_id": result,
-                    "source": auth_info.source,
-                    "source_id": auth_info.source_id
-                }
-            ).model_dump())
+        async with ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id, task=task) as connector_service:
+            logger.info(f"[Auth] 从认证上下文获取: 鉴权数据AuthInfo: {auth_info.source}")
+
+            # 调用 connector_service 的 login 方法
+            result = await connector_service.login(
+                platform=data.platform,
+                method=data.method,
+                cookies=data.cookies or {}
+            )
+
+            # 完成任务
+            await task.complete({"success": bool(result)})
+
+            # 根据登录方法处理不同返回格式
+            if data.method == LoginMethod.QRCODE:
+                # 二维码登录返回字典，包含 qrcode, context_id, is_logged_in 等
+                return json(BaseResponse(
+                    code=ErrorCode.SUCCESS if result.get("success") else ErrorCode.INTERNAL_ERROR,
+                    message=result.get("message", "登录请求处理完成"),
+                    data={
+                        "task_id": str(task.id),
+                        **result,  # 包含 qrcode, context_id, is_logged_in, timeout 等
+                        "source": auth_info.source,
+                        "source_id": auth_info.source_id
+                    }
+                ).model_dump())
+            else:
+                # Cookie 登录返回 context_id 字符串
+                return json(BaseResponse(
+                    code=ErrorCode.SUCCESS if result else ErrorCode.INTERNAL_ERROR,
+                    message="登录成功" if result else "登录失败",
+                    data={
+                        "task_id": str(task.id),
+                        "context_id": result,
+                        "source": auth_info.source,
+                        "source_id": auth_info.source_id
+                    }
+                ).model_dump())
 
     except ValidationError as e:
         logger.error(f"参数验证失败: {e}")
@@ -289,12 +333,12 @@ async def list_platforms(request: Request):
 @connectors_bp.post("/get-note-detail")
 async def get_note_detail(request: Request):
     """获取笔记/文章详情（快速提取，不使用Agent）
-    
+
     适合场景：
     - 批量获取文章内容和图片
     - 快速抓取文章基本信息
     - 不需要深度AI分析的场景
-    
+
     性能特点：
     - 速度快，通常2-5秒完成单篇文章
     - 资源消耗少
@@ -303,34 +347,49 @@ async def get_note_detail(request: Request):
     try:
         data = ExtractRequest(**request.json)
         logger.info(f"收到快速提取请求: {len(data.urls)} 个URL, platform={data.platform}")
-        
+
         # 获取认证上下文
         auth_info = request.ctx.auth_info
-        connector_service = ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id)
-        
-        # 获取笔记详情
-        results = await connector_service.get_note_details(
-            urls=data.urls,
-            platform=data.platform
+
+        # 创建并启动任务
+        task = await Task.create(
+            source=auth_info.source.value,
+            source_id=auth_info.source_id,
+            task_type="get_note_detail"
         )
-        
-        # 统计结果
-        success_count = sum(1 for r in results if r.get("success"))
-        
-        return json(BaseResponse(
-            code=ErrorCode.SUCCESS,
-            message=f"快速提取完成：{success_count}/{len(results)} 成功",
-            data={
-                "results": results,
-                "summary": {
-                    "total": len(results),
-                    "success_count": success_count,
-                    "failed_count": len(results) - success_count,
-                    "method": "fast_extraction"
+        await task.start()
+
+        async with ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id, task=task) as connector_service:
+            # 获取笔记详情
+            results = await connector_service.get_note_details(
+                urls=data.urls,
+                platform=data.platform
+            )
+
+            # 统计结果
+            success_count = sum(1 for r in results if r.get("success"))
+
+            # 完成任务
+            await task.complete({
+                "total": len(results),
+                "success_count": success_count
+            })
+
+            return json(BaseResponse(
+                code=ErrorCode.SUCCESS,
+                message=f"快速提取完成：{success_count}/{len(results)} 成功",
+                data={
+                    "task_id": str(task.id),
+                    "results": results,
+                    "summary": {
+                        "total": len(results),
+                        "success_count": success_count,
+                        "failed_count": len(results) - success_count,
+                        "method": "fast_extraction"
+                    }
                 }
-            }
-        ).model_dump())
-        
+            ).model_dump())
+
     except ValidationError as e:
         logger.error(f"参数验证失败: {e}")
         return json(BaseResponse(
@@ -360,56 +419,72 @@ async def search_and_extract(request: Request):
     try:
         data = SearchRequest.model_validate(request.json)
         logger.info(f"搜索并提取内容: platform={data.platform}, keywords={data.keywords}")
-        
+
         # 获取认证上下文
         auth_info = request.ctx.auth_info
-        connector_service = ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id)
-        
-        results = await connector_service.search_and_extract(
-            platform=data.platform,
-            keywords=data.keywords,
-            limit=data.limit
-        )
-        
-        # 重组结果：按 keyword 分组
-        results_by_keyword = {}
-        successful_keywords = 0
-        failed_keywords = 0
-        total_results = 0
-        
-        for result in results:
-            keyword = result.get("keyword")
-            if keyword:
-                if result.get("success"):
-                    items = result.get("data", [])
-                    results_by_keyword[keyword] = {
-                        "success": True,
-                        "result_count": len(items),
-                        "results": items
-                    }
-                    successful_keywords += 1
-                    total_results += len(items)
-                else:
-                    results_by_keyword[keyword] = {
-                        "success": False,
-                        "error": result.get("error"),
-                        "result_count": 0,
-                        "results": []
-                    }
-                    failed_keywords += 1
 
-        return json(BaseResponse(
-            code=ErrorCode.SUCCESS,
-            message=f"搜索完成：{successful_keywords}/{len(data.keywords)} 个关键词成功，共 {total_results} 条结果",
-            data={
+        # 创建并启动任务
+        task = await Task.create(
+            source=auth_info.source.value,
+            source_id=auth_info.source_id,
+            task_type="search_and_extract"
+        )
+        await task.start()
+
+        async with ConnectorService(request.app.ctx.playwright, auth_info.source.value, auth_info.source_id, task=task) as connector_service:
+            results = await connector_service.search_and_extract(
+                platform=data.platform,
+                keywords=data.keywords,
+                limit=data.limit
+            )
+
+            # 重组结果：按 keyword 分组
+            results_by_keyword = {}
+            successful_keywords = 0
+            failed_keywords = 0
+            total_results = 0
+
+            for result in results:
+                keyword = result.get("keyword")
+                if keyword:
+                    if result.get("success"):
+                        items = result.get("data", [])
+                        results_by_keyword[keyword] = {
+                            "success": True,
+                            "result_count": len(items),
+                            "results": items
+                        }
+                        successful_keywords += 1
+                        total_results += len(items)
+                    else:
+                        results_by_keyword[keyword] = {
+                            "success": False,
+                            "error": result.get("error"),
+                            "result_count": 0,
+                            "results": []
+                        }
+                        failed_keywords += 1
+
+            # 完成任务
+            await task.complete({
                 "total_keywords": len(data.keywords),
                 "successful_keywords": successful_keywords,
-                "failed_keywords": failed_keywords,
-                "total_results": total_results,
-                "results": results_by_keyword
-            }
-        ).model_dump())
-        
+                "total_results": total_results
+            })
+
+            return json(BaseResponse(
+                code=ErrorCode.SUCCESS,
+                message=f"搜索完成：{successful_keywords}/{len(data.keywords)} 个关键词成功，共 {total_results} 条结果",
+                data={
+                    "task_id": str(task.id),
+                    "total_keywords": len(data.keywords),
+                    "successful_keywords": successful_keywords,
+                    "failed_keywords": failed_keywords,
+                    "total_results": total_results,
+                    "results": results_by_keyword
+                }
+            ).model_dump())
+
     except ValidationError as e:
         logger.error(f"参数验证失败: {e}")
         return json(BaseResponse(
