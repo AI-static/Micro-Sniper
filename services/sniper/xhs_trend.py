@@ -296,6 +296,9 @@ class XiaohongshuDeepAgent:
         Returns:
             分析结果
         """
+        # 设置 task，以便后续使用 ConnectorService
+        self._task = task
+
         try:
             # 记录初始参数
             await task.log_step(0, "任务初始化",

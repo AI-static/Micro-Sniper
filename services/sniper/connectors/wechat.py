@@ -31,28 +31,6 @@ class WechatConnector(BaseConnector):
         self.rss_timeout = settings.wechat.rss_timeout
         self.rss_buffer_size = settings.wechat.rss_buffer_size
 
-    def _build_context_id(self, source: str, source_id: str) -> str:
-        """构建 context_id: xiaohongshu:{source}:{source_id}"""
-        return f"wechat-context:{source}:{source_id}"
-
-    async def _require_login(self, source: str, source_id: str) -> str:
-        """验证并返回有效的 context_id
-
-        Args:
-            source: 系统标识
-            source_id: 用户标识
-
-        Returns:
-            有效的 context_id
-
-        Raises:
-            ValueError: 用户未登录
-        """
-        # 不需要检查
-        context_id = self._build_context_id(source, source_id)
-
-        return context_id
-
     async def _get_browser_session(
             self,
             source: str = "default",

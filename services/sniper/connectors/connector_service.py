@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from .xiaohongshu import XiaohongshuConnector
 from .wechat import WechatConnector
+from .douyin import DouyinConnector
 from utils.logger import logger
 from utils.cache import distributed_lock, check_rate_limit
 from utils.exceptions import RateLimitException, LockConflictException
@@ -30,7 +31,6 @@ class OperationRateLimit(BaseModel):
 class PlatformRateLimits(BaseModel):
     """平台级别的频率限制配置"""
     login: Optional[OperationRateLimit] = None
-    extract_summary_stream: Optional[OperationRateLimit] = None
     get_note_detail: Optional[OperationRateLimit] = None
     harvest_user_content: Optional[OperationRateLimit] = None
     search_and_extract: Optional[OperationRateLimit] = None
@@ -41,12 +41,12 @@ class RateLimitConfigs(BaseModel):
     """所有平台的频率限制配置"""
     xiaohongshu: PlatformRateLimits
     wechat: PlatformRateLimits
+    douyin: PlatformRateLimits
 
 
 RATE_LIMIT_CONFIGS = RateLimitConfigs(
     xiaohongshu=PlatformRateLimits(
         login=OperationRateLimit(max_requests=3, window=60, lock_timeout=120),
-        extract_summary_stream=OperationRateLimit(max_requests=10, window=60, lock_timeout=300),
         get_note_detail=OperationRateLimit(max_requests=10, window=60, lock_timeout=180),
         harvest_user_content=OperationRateLimit(max_requests=5, window=60, lock_timeout=300),
         search_and_extract=OperationRateLimit(max_requests=10, window=60, lock_timeout=180),
@@ -54,9 +54,15 @@ RATE_LIMIT_CONFIGS = RateLimitConfigs(
     ),
     wechat=PlatformRateLimits(
         login=OperationRateLimit(max_requests=3, window=60, lock_timeout=120),
-        extract_summary_stream=OperationRateLimit(max_requests=10, window=60, lock_timeout=300),
         get_note_detail=OperationRateLimit(max_requests=10, window=60, lock_timeout=180),
         harvest_user_content=OperationRateLimit(max_requests=5, window=60, lock_timeout=300),
+    ),
+    douyin=PlatformRateLimits(
+        login=OperationRateLimit(max_requests=3, window=60, lock_timeout=120),
+        get_note_detail=OperationRateLimit(max_requests=10, window=60, lock_timeout=180),
+        harvest_user_content=OperationRateLimit(max_requests=5, window=60, lock_timeout=300),
+        search_and_extract=OperationRateLimit(max_requests=10, window=60, lock_timeout=180),
+        publish_content=OperationRateLimit(max_requests=2, window=60, lock_timeout=300),
     )
 )
 
@@ -243,7 +249,7 @@ class ConnectorService:
         """获取或创建平台连接器
 
         Args:
-            platform: 平台名称 (xiaohongshu/wechat)
+            platform: 平台名称 (xiaohongshu/wechat/douyin)
             source: 系统标识
             source_id: 用户标识
 
@@ -261,6 +267,8 @@ class ConnectorService:
                 self._connectors[platform] = XiaohongshuConnector(playwright=self._playwright)
             elif platform == PlatformType.WECHAT:
                 self._connectors[platform] = WechatConnector(playwright=self._playwright)
+            elif platform == PlatformType.DOUYIN:
+                self._connectors[platform] = DouyinConnector(playwright=self._playwright)
             else:
                 raise ValueError(f"不支持的平台: {platform}")
 
@@ -268,103 +276,6 @@ class ConnectorService:
 
     # ==================== 核心 API ====================
 
-    async def extract_summary_stream(
-        self,
-        urls: List[str],
-        platform: PlatformType,
-        concurrency: int = 10
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """流式提取URL内容摘要
-
-        Args:
-            urls: 要提取的URL列表
-            platform: 平台名称（必须指定）
-            concurrency: 并发数量
-
-        Yields:
-            提取结果字典，包含 url、success、data 等字段
-        """
-        try:
-            connector = self._get_connector(platform)
-            logger.info(f"[ConnectorService] Streaming extraction from {platform}, {len(urls)} URLs, source={self._source}, source_id={self._source_id}")
-            
-            # 发送开始事件
-            yield {
-                'type': 'start',
-                'message': '提取已启动',
-                'data': {
-                    'urls': urls,
-                    'platform': platform,
-                    'url_count': len(urls),
-                    'concurrency': concurrency
-                }
-            }
-            
-            processed = 0
-            success_count = 0
-            
-            # 检查 connector 是否有 extract_summary_stream 方法
-            if hasattr(connector, 'extract_summary_stream'):
-                # 直接使用 connector 的流式方法
-                async for result in connector.extract_summary_stream(urls, concurrency, self._source, self._source_id):
-                    processed += 1
-                    if result.get('success'):
-                        success_count += 1
-                    
-                    # 发送结果事件
-                    yield {
-                        'type': 'result',
-                        'data': result,
-                        'progress': {
-                            'current': processed,
-                            'total': len(urls),
-                            'success_count': success_count
-                        }
-                    }
-            else:
-                yield {
-                    'type': 'error',
-                    'message': '此渠道没有extract_summary_stream方法',
-                    'data': {
-                        'platform': platform,
-                        'error': 'method_not_supported'
-                    }
-                }
-                return
-            
-            # 发送完成事件
-            failed_count = processed - success_count
-            yield {
-                'type': 'complete',
-                'message': f'提取完成：{success_count}/{processed} 成功',
-                'data': {
-                    'total': processed,
-                    'success_count': success_count,
-                    'failed_count': failed_count
-                }
-            }
-            
-        except ValueError as e:
-            logger.error(f"[ConnectorService] ValueError in extract_summary_stream: {e}")
-            yield {
-                'type': 'error',
-                'message': str(e),
-                'data': {
-                    'platform': platform,
-                    'error_type': 'value_error'
-                }
-            }
-        except Exception as e:
-            logger.error(f"[ConnectorService] Unexpected error in extract_summary_stream: {e}")
-            yield {
-                'type': 'error',
-                'message': f'提取过程中发生错误: {str(e)}',
-                'data': {
-                    'platform': platform,
-                    'error_type': 'unexpected_error'
-                }
-            }
-    
     async def get_note_details(
         self,
         urls: List[str],

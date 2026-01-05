@@ -14,6 +14,7 @@ class PlatformType(str, Enum):
     """连接器平台类型枚举"""
     XIAOHONGSHU = "xiaohongshu"
     WECHAT = "wechat"
+    DOUYIN = "douyin"
     GENERIC = "generic"
 
 

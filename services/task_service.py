@@ -31,6 +31,7 @@ class TaskService:
 
     async def list_tasks(
         self,
+        source: Optional[str] = None,
         source_id: Optional[str] = None,
         status: Optional[str] = None,
         task_type: Optional[str] = None,
@@ -38,6 +39,8 @@ class TaskService:
     ) -> List[Task]:
         """查询任务列表"""
         query = Task.all()
+        if source:
+            query = query.filter(source=source)
         if source_id:
             query = query.filter(source_id=source_id)
         if status:

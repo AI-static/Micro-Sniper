@@ -28,73 +28,7 @@ class XiaohongshuConnector(BaseConnector):
         super().__init__(platform_name=PlatformType.XIAOHONGSHU, playwright=playwright)
         self._login_tasks = {}
 
-    @property
-    def platform_name_str(self) -> str:
-        return self.platform_name.value
-
-    def _build_context_id(self, source: str, source_id: str) -> str:
-        return f"{self.platform_name.value}-context:{source}-{source_id}"
-
-    async def _get_browser_session(
-            self,
-            source: str = "default",
-            source_id: str = "default"
-    ) -> Any:
-        """获取 browser session（使用持久化 context）"""
-        context_key = self._build_context_id(source, source_id)
-        # 获取持久化 context
-        context_result = await self.agent_bay.context.get(context_key, create=False)
-        if not context_result.success or not context_result.context:
-            raise ContextNotFoundException(f"Context '{context_key}' not found，请先登录")
-
-        logger.info(f"Using context {context_key} :{context_result.context.id}")
-
-        # 使用 context 创建 session
-        session_result = await self.agent_bay.create(
-            CreateSessionParams(
-                image_id="browser_latest",
-                browser_context=BrowserContext(context_result.context.id, auto_upload=True)
-            )
-        )
-
-        if not session_result.success:
-            raise SessionCreationException(f"Failed to create session: {session_result.error_message}")
-
-        session = session_result.session
-
-        # 初始化浏览器
-        ok = await session.browser.initialize(BrowserOption())
-        if not ok:
-            await self.agent_bay.delete(session, sync_context=False)
-            raise BrowserInitializationException("Failed to initialize browser")
-
-        return session
-
-    # ==================== 资源管理与通用逻辑 (核心优化部分) ====================
-
-    async def _connect_cdp(self, session):
-        """连接 CDP 并获取 context"""
-        endpoint_url = await session.browser.get_endpoint_url()
-        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
-        # 通常 connect_over_cdp 会复用上下文，这里取第一个
-        context = browser.contexts[0] if browser.contexts else await browser.new_context()
-        return browser, context
-
-    async def _cleanup_resources(self, session, browser):
-        """统一清理资源"""
-
-        try:
-            if browser:
-                # 尝试通过 CDP 关闭，更干净
-                cdp = await browser.new_browser_cdp_session()
-                await cdp.send('Browser.close')
-                await asyncio.sleep(1)  # 给一点时间让 socket 关闭
-                await browser.close()
-            if session:
-                # 默认 sync_context=True 以保存 Cookie 状态
-                await self.agent_bay.delete(session, sync_context=True)
-        except Exception:
-            pass
+    # ==================== 资源管理与通用逻辑  ====================
 
     async def _batch_execute(
             self,
@@ -240,7 +174,7 @@ class XiaohongshuConnector(BaseConnector):
         """
         context_key = self._build_context_id(source, source_id)
         logger.info(f"[xiaohongshu] QRCode login with context_id: {context_key}")
-        context_res = await self.agent_bay.context.get(context_key, create=False)
+        context_res = await self.agent_bay.context.get(context_key, create=True)
         # 创建临时 session 验证登录状态
         verify_session_res = await self.agent_bay.create(
             CreateSessionParams(
@@ -296,18 +230,25 @@ class XiaohongshuConnector(BaseConnector):
             task = asyncio.create_task(self._wait_and_cleanup_after_scan(
                 session=verify_session,
                 browser=browser_v,
-                page=page,
                 context_key=context_key,
                 timeout=timeout
             ))
-            self._login_tasks[context_key] = task
+            # 存储登录任务信息（包含 session 和 browser）
+            self._login_tasks[context_key] = {
+                "session": verify_session,
+                "browser": browser_v,
+                "task": task,
+                "context_key": context_key,
+                "timeout": timeout
+            }
             # 立即返回二维码（不等待扫码完成）
             return {
                 "success": True,
                 "context_id": context_key,
-                "qrcode": qrcode_url,
+                "browser_url": qrcode_url,  # 云浏览器 URL
+                "qrcode": qrcode_url,  # 兼容旧字段
                 "timeout": timeout,
-                "message": "QRCode generated, waiting for scan",
+                "message": "Cloud browser created, waiting for login",
                 "is_logged_in": False
             }
         except Exception as e:
@@ -320,26 +261,30 @@ class XiaohongshuConnector(BaseConnector):
             self,
             session: Any,
             browser: Any,
-            page: Page,
             context_key: str,
-            timeout: int
+            timeout: int = 60,
     ):
         """后台任务：等待60秒后优雅关闭并落盘上下文"""
-        logger.info(f"[xiaohongshu] Background task: waiting 60s before cleanup")
-        
+        logger.info(f"[xiaohongshu] Background task: waiting {timeout}s before cleanup")
+
         try:
-            # 直接等待60秒，让用户扫码并让页面完全稳定
-            await asyncio.sleep(120)
-            
+            # 直接等待指定秒数，让用户扫码并让页面完全稳定
+            await asyncio.sleep(timeout)
+
             logger.info(f"[xiaohongshu] Saving context and cleaning up: {context_key}")
-            
+
             # 优雅关闭浏览器，自动同步 cookies 到 context
             await self._cleanup_resources(session, browser)
             logger.info(f"[xiaohongshu] Context saved successfully")
-            
+
         except Exception as e:
             logger.error(f"[xiaohongshu] Background task error: {e}")
             await self._cleanup_resources(session, browser)
+        finally:
+            # 清理 _login_tasks 中的记录
+            if context_key in self._login_tasks:
+                logger.info(f"[xiaohongshu] Cleaning up _login_tasks entry: {context_key}")
+                del self._login_tasks[context_key]
 
     async def _get_qrcode_image(self, page: Page, source: str = "default", source_id: str = "default") -> Optional[str]:
         """获取二维码图片并上传到OSS
@@ -464,56 +409,6 @@ class XiaohongshuConnector(BaseConnector):
 
     # ==================== 业务逻辑：提取与监控 (使用通用批处理) ====================
 
-    async def extract_summary_stream(
-            self,
-            urls: List[str],
-            concurrency: int = 1,
-            source: str = "default",
-            source_id: str = "default",
-            extra: Optional[Dict[str, Any]] = None
-    ):
-        """流式提取并使用 Agent 分析"""
-
-        async def _process(url: str, idx: int, context: Any, session: Any):
-            logger.info(f"[xiaohongshu] Analyzing URL {idx + 1}: {url}")
-            page = await context.new_page()
-            try:
-                await page.goto(url, timeout=60000)
-                await asyncio.sleep(2)
-
-                # 关闭可能的弹窗
-                try:
-                    await session.browser.agent.act_async(
-                        ActOptions(action="如果有弹窗或登录提示，关闭它们。"), page=page
-                    )
-                except:
-                    pass
-
-                note_data = await self._get_note_detail_evaluate(page)
-
-                if note_data:
-                    # 构建 Prompt 让 Agent 分析
-                    prompt = self._build_analysis_prompt(note_data)
-                    try:
-                        analysis_res = await session.browser.agent.run(prompt)
-                        analysis_text = analysis_res if isinstance(analysis_res, str) else str(analysis_res)
-
-                        return {
-                            "url": url,
-                            "success": True,
-                            "data": {"note_data": note_data, "analysis": analysis_text},
-                            "method": "agent_analysis"
-                        }
-                    except Exception as e:
-                        return {"url": url, "success": False, "error": f"Agent analysis failed: {e}"}
-                else:
-                    return {"url": url, "success": False, "error": "Failed to extract note data"}
-            finally:
-                await page.close()
-
-        # 调用通用批处理
-        async for result in self._batch_execute(urls, _process, concurrency, source, source_id):
-            yield result
 
     async def harvest_user_content(
             self,

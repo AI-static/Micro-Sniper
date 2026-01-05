@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Micro-Sniper Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+        }
+
+        /* Login Screen */
+        #loginScreen {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+        }
+
+        .login-card {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .login-logo {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        /* Navigation */
+        .navbar {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: #667eea !important;
+        }
+
+        .nav-link {
+            color: #64748b !important;
+            font-weight: 500;
+            padding: 0.5rem 1rem !important;
+            margin: 0 0.25rem;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .nav-link:hover {
+            background: #f1f5f9;
+            color: #667eea !important;
+        }
+
+        .nav-link.active {
+            background: #667eea !important;
+            color: white !important;
+        }
+
+        /* Cards */
+        .card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            margin-bottom: 24px;
+            background: white;
+        }
+
+        .card-header {
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 20px 24px;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .card-body {
+            padding: 24px;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: #667eea;
+            border-color: #667eea;
+            border-radius: 8px;
+            padding: 10px 24px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary:hover {
+            background: #5568d3;
+            border-color: #5568d3;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-outline-primary {
+            color: #667eea;
+            border-color: #667eea;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+
+        .btn-outline-primary:hover {
+            background: #667eea;
+            border-color: #667eea;
+        }
+
+        /* Forms */
+        .form-label {
+            font-weight: 500;
+            color: #475569;
+            margin-bottom: 8px;
+        }
+
+        .form-control, .form-select {
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            padding: 10px 16px;
+            transition: all 0.2s;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* Task Cards */
+        .task-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            background: white;
+            transition: all 0.2s;
+        }
+
+        .task-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transform: translateY(-2px);
+        }
+
+        .task-status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .task-pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .task-running {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .task-completed {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .task-failed {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* Progress Bar */
+        .progress {
+            height: 8px;
+            border-radius: 4px;
+            background: #e2e8f0;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        }
+
+        /* Platform Cards */
+        .platform-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            background: white;
+            transition: all 0.2s;
+        }
+
+        .platform-card:hover {
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            transform: translateY(-4px);
+        }
+
+        .platform-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .platform-name {
+            font-weight: 600;
+            font-size: 1.2rem;
+            margin-bottom: 8px;
+        }
+
+        .platform-desc {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        .feature-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin: 4px 2px;
+        }
+
+        .feature-enabled {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .feature-disabled {
+            background: #f1f5f9;
+            color: #94a3b8;
+        }
+
+        /* Loading Spinner */
+        .spinner-border-sm {
+            width: 1rem;
+            height: 1rem;
+            border-width: 0.15em;
+        }
+
+        /* Results Display */
+        .result-item {
+            padding: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            background: #fafafa;
+        }
+
+        .result-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .result-meta {
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+
+        /* Utility */
+        .hidden {
+            display: none !important;
+        }
+
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 24px;
+            color: #1e293b;
+        }
+
+        .badge-api-key {
+            background: #f1f5f9;
+            color: #64748b;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        /* Toast */
+        .toast {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen">
+        <div class="login-card">
+            <div class="text-center login-logo">🎯</div>
+            <h2 class="text-center mb-2" style="font-weight: 700; color: #1e293b;">Micro-Sniper</h2>
+            <p class="text-center text-muted mb-4">Multi-Platform Content Extraction System</p>
+            <div class="mb-3">
+                <label class="form-label" for="apiKeyInput">API Key</label>
+                <input type="password" class="form-control" id="apiKeyInput"
+                    placeholder="Enter your API key to continue">
+            </div>
+            <button class="btn btn-primary w-100" onclick="login()">
+                <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
+                <span>Access Dashboard</span>
+            </button>
+            <div id="loginError" class="alert alert-danger mt-3 hidden"></div>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="mainApp" class="hidden">
+        <!-- Navbar -->
+        <nav class="navbar navbar-expand-lg sticky-top">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="#">
+                    <i class="bi bi-crosshair"></i> Micro-Sniper
+                </a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarNav">
+                    <ul class="navbar-nav me-auto">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#" onclick="showSection('tasks')">
+                                <i class="bi bi-list-task"></i> Tasks
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('connectors')">
+                                <i class="bi bi-plug"></i> Connectors
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('platforms')">
+                                <i class="bi bi-globe"></i> Platforms
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('auth')">
+                                <i class="bi bi-shield-lock"></i> Login
+                            </a>
+                        </li>
+                    </ul>
+                    <div class="d-flex align-items-center">
+                        <span class="badge-api-key me-3">
+                            <i class="bi bi-key-fill"></i>
+                            <span id="apiKeyDisplay">••••••••</span>
+                        </span>
+                        <button class="btn btn-outline-primary btn-sm" onclick="logout()">
+                            <i class="bi bi-box-arrow-right"></i> Logout
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container py-4">
+            <!-- Tasks Section -->
+            <div id="tasksSection">
+                <h2 class="section-title">Task Management</h2>
+
+                <!-- Create Task Tabs -->
+                <ul class="nav nav-tabs mb-4" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#createTask">
+                            <i class="bi bi-plus-circle"></i> Create Task
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#taskList">
+                            <i class="bi bi-list-ul"></i> Task List
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Create Task -->
+                    <div class="tab-pane fade show active" id="createTask">
+                        <div class="row">
+                            <div class="col-lg-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <i class="bi bi-person-badge"></i> Creator Monitor
+                                    </div>
+                                    <div class="card-body">
+                                        <form onsubmit="createCreatorTask(event)">
+                                            <div class="mb-3">
+                                                <label class="form-label">Platform</label>
+                                                <select class="form-select" id="creatorPlatform" required>
+                                                    <option value="">Select platform...</option>
+                                                    <option value="xiaohongshu">小红书</option>
+                                                    <option value="douyin">抖音</option>
+                                                </select>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label">Creator IDs (one per line)</label>
+                                                <textarea class="form-control" id="creatorIds" rows="4"
+                                                    placeholder="5c4c5848000000001200de55&#10;657f31eb000000003d036737" required></textarea>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label">Monitor Days</label>
+                                                <input type="number" class="form-control" id="monitorDays" value="7" min="1" max="30">
+                                            </div>
+                                            <button type="submit" class="btn btn-primary">
+                                                <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
+                                                Create Monitor Task
+                                            </button>
+                                        </form>
+                                        <div id="creatorTaskResult" class="mt-3"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-lg-6">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <i class="bi bi-graph-up"></i> Trend Analysis
+                                    </div>
+                                    <div class="card-body">
+                                        <form onsubmit="createTrendTask(event)">
+                                            <div class="mb-3">
+                                                <label class="form-label">Platform</label>
+                                                <select class="form-select" id="trendPlatform" required>
+                                                    <option value="">Select platform...</option>
+                                                    <option value="xiaohongshu">小红书</option>
+                                                    <option value="douyin">抖音</option>
+                                                </select>
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label">Keywords (one per line)</label>
+                                                <textarea class="form-control" id="trendKeywords" rows="4"
+                                                    placeholder="agent interview&#10;Python tutorial" required></textarea>
+                                            </div>
+                                            <button type="submit" class="btn btn-primary">
+                                                <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
+                                                Create Analysis Task
+                                            </button>
+                                        </form>
+                                        <div id="trendTaskResult" class="mt-3"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Task List -->
+                    <div class="tab-pane fade" id="taskList">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <span><i class="bi bi-list-ul"></i> All Tasks</span>
+                                <button class="btn btn-outline-primary btn-sm" onclick="refreshTasks()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div id="taskListContainer">
+                                    <div class="text-center text-muted py-5">
+                                        <i class="bi bi-inbox" style="font-size: 48px; display: block; margin-bottom: 16px;"></i>
+                                        <p>No tasks yet. Create your first task!</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connectors Section -->
+            <div id="connectorsSection" class="hidden">
+                <h2 class="section-title">Connector Operations</h2>
+
+                <ul class="nav nav-tabs mb-4" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#extract">
+                            <i class="bi bi-file-text"></i> Extract
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#harvest">
+                            <i class="bi bi-download"></i> Harvest
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#search">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Extract -->
+                    <div class="tab-pane fade show active" id="extract">
+                        <div class="card">
+                            <div class="card-header">Extract Content</div>
+                            <div class="card-body">
+                                <form onsubmit="extractContent(event)">
+                                    <div class="mb-3">
+                                        <label class="form-label">Platform</label>
+                                        <select class="form-select" id="extractPlatform">
+                                            <option value="xiaohongshu">Xiaohongshu</option>
+                                            <option value="wechat">WeChat</option>
+                                            <option value="generic">Generic</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">URLs (one per line)</label>
+                                        <textarea class="form-control" id="extractUrls" rows="5"
+                                            placeholder="https://www.xiaohongshu.com/explore/xxxx" required></textarea>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
+                                        Extract Content
+                                    </button>
+                                </form>
+                                <div id="extractResult" class="mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Harvest -->
+                    <div class="tab-pane fade" id="harvest">
+                        <div class="card">
+                            <div class="card-header">Harvest User Content</div>
+                            <div class="card-body">
+                                <form onsubmit="harvestContent(event)">
+                                    <div class="mb-3">
+                                        <label class="form-label">Platform</label>
+                                        <select class="form-select" id="harvestPlatform">
+                                            <option value="xiaohongshu">Xiaohongshu</option>
+                                            <option value="wechat">WeChat</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Creator IDs (one per line)</label>
+                                        <textarea class="form-control" id="harvestCreatorIds" rows="4" required></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Limit</label>
+                                        <input type="number" class="form-control" id="harvestLimit" value="50" min="1" max="200">
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
+                                        Start Harvest
+                                    </button>
+                                </form>
+                                <div id="harvestResult" class="mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Search -->
+                    <div class="tab-pane fade" id="search">
+                        <div class="card">
+                            <div class="card-header">Search & Extract</div>
+                            <div class="card-body">
+                                <form onsubmit="searchAndExtract(event)">
+                                    <div class="mb-3">
+                                        <label class="form-label">Platform</label>
+                                        <select class="form-select" id="searchPlatform">
+                                            <option value="xiaohongshu">Xiaohongshu</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Keywords (one per line)</label>
+                                        <textarea class="form-control" id="searchKeywords" rows="4" required></textarea>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Limit</label>
+                                        <input type="number" class="form-control" id="searchLimit" value="20" min="1" max="100">
+                                    </div>
+                                    <button type="submit" class="btn btn-primary">
+                                        <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
+                                        Search & Extract
+                                    </button>
+                                </form>
+                                <div id="searchResult" class="mt-3"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Platforms Section -->
+            <div id="platformsSection" class="hidden">
+                <h2 class="section-title">Supported Platforms</h2>
+                <div id="platformsList" class="row">
+                    <div class="col-12 text-center py-5">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Detail Modal -->
+    <div class="modal fade" id="taskDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Task Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="taskDetailContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="liveToast" class="toast" role="alert" data-bs-autohide="true" data-bs-delay="3000">
+            <div class="toast-header">
+                <strong class="me-auto" id="toastTitle">Notification</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastBody"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

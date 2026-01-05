@@ -63,14 +63,16 @@ class AuthMiddleware:
     def _should_skip_auth(request: Request) -> bool:
         """检查是否应该跳过认证"""
         exempt_routes = [
-            "/health","/callback/wechat_verify/"
+            "/health",
+            "/callback/wechat_verify/",
+            "/static"
         ]
-        
+
         for route in exempt_routes:
             if request.path.startswith(route):
                 return True
-        
+
         if request.method == "OPTIONS":
             return True
-        
+
         return False

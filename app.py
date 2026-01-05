@@ -4,8 +4,8 @@ Sanic应用配置
 """
 from sanic import Sanic
 from sanic.config import Config
-from types import SimpleNamespace
 from sanic.request import Request
+from sanic.response import redirect, HTTPResponse
 from sanic_cors import CORS
 from sanic_ext import Extend
 from playwright.async_api import async_playwright
@@ -22,7 +22,10 @@ def create_app() -> Sanic:
     # 配置
     app.config.REQUEST_MAX_SIZE = 1024 * 1024 * 200
     app.ctx.settings = settings
-    
+
+    # 静态文件服务（启用 index 参数处理目录访问）
+    app.static('/static', './static', name='static_files', index='index.html')
+
     # 扩展
     Extend(app)
 
@@ -111,6 +114,6 @@ def setup_playwright(app: Sanic):
             logger.info("✅ Playwright 资源已清理")
 
         # 清理所有活跃任务的分布式锁
-        from services.connector_service import ConnectorService
+        from services.sniper.connectors import ConnectorService
         await ConnectorService.cleanup_all_locks()
         logger.info("✅ 分布式锁已清理")

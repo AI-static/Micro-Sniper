@@ -11,6 +11,7 @@ from agentbay import AsyncAgentBay
 from agentbay import ExtractOptions, CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
 from config.settings import global_settings
 from utils.logger import logger
+from utils.exceptions import ContextNotFoundException, SessionCreationException, BrowserInitializationException
 import re
 from sanic import Sanic
 
@@ -24,7 +25,7 @@ class BaseConnector(ABC):
     - playwright 实例由外部传入，支持独立脚本运行
     """
 
-    def __init__(self, platform_name: str, playwright=None):
+    def __init__(self, platform_name: str, playwright):
         """初始化连接器
 
         Args:
@@ -38,28 +39,78 @@ class BaseConnector(ABC):
         self.agent_bay = AsyncAgentBay(api_key=api_key)
         
         # Playwright 实例管理
-        self._playwright_instance = playwright
+        self.playwright = playwright
 
     @property
-    def playwright(self):
-        """获取 Playwright 实例"""
-        if self._playwright_instance:
-            return self._playwright_instance
-        # 如果没有传入实例，则从 Sanic app 获取（兼容 API 模式）
-        return Sanic.get_app(global_settings.app.name).ctx.playwright
+    def platform_name_str(self) -> str:
+        return self.platform_name.value
 
-    @staticmethod
-    async def cleanup_pages(context):
-        pages = context.pages
-        logger.info(f"清理开始，当前共有 {len(pages)} 个页面待关闭")
+    async def _get_browser_session(
+            self,
+            source: str = "default",
+            source_id: str = "default"
+    ) -> Any:
+        """获取 browser session（使用持久化 context）"""
+        context_key = self._build_context_id(source, source_id)
+        # 获取持久化 context
+        context_result = await self.agent_bay.context.get(context_key, create=False)
+        if not context_result.success or not context_result.context:
+            raise ContextNotFoundException(f"Context '{context_key}' not found，请先登录")
 
-        # 使用 gather 同时关闭所有页面，效率最高
-        await asyncio.gather(*[p.close() for p in pages])
-        logger.info("所有并发页面已清理完毕")
+        logger.info(f"Using context {context_key} :{context_result.context.id}")
+
+        # 使用 context 创建 session
+        session_result = await self.agent_bay.create(
+            CreateSessionParams(
+                image_id="browser_latest",
+                browser_context=BrowserContext(context_result.context.id, auto_upload=True)
+            )
+        )
+
+        if not session_result.success:
+            raise SessionCreationException(f"Failed to create session: {session_result.error_message}")
+
+        session = session_result.session
+
+        # 初始化浏览器
+        ok = await session.browser.initialize(BrowserOption())
+        if not ok:
+            await self.agent_bay.delete(session, sync_context=False)
+            raise BrowserInitializationException("Failed to initialize browser")
+
+        return session
+
+    async def _connect_cdp(self, session):
+        """连接 CDP 并获取 context"""
+        endpoint_url = await session.browser.get_endpoint_url()
+        browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
+        # 通常 connect_over_cdp 会复用上下文，这里取第一个
+        context = browser.contexts[0] if browser.contexts else await browser.new_context()
+        return browser, context
+
+    async def _cleanup_resources(self, session, browser):
+        """统一清理资源"""
+
+        try:
+            if browser:
+                # 尝试通过 CDP 关闭，更干净
+                cdp = await browser.new_browser_cdp_session()
+                await cdp.send('Browser.close')
+                await asyncio.sleep(1)  # 给一点时间让 socket 关闭
+                await browser.close()
+            if session:
+                # 默认 sync_context=True 以保存 Cookie 状态
+                await self.agent_bay.delete(session, sync_context=True)
+        except Exception:
+            pass
 
     def get_locale(self) -> List[str]:
         """获取浏览器语言设置，子类可重写"""
         return ["zh-CN"]
+
+    def _build_context_id(self, source: str, source_id: str) -> str:
+        """构建 context_id: xiaohongshu:{source}:{source_id}"""
+        return f"{self.platform_name_str}-context:{source}:{source_id}"
 
     def _build_session_key(self, source: str = "default", source_id: str = "default") -> str:
         """构建 session key（子类可重写）
@@ -71,7 +122,7 @@ class BaseConnector(ABC):
         Returns:
             session key 字符串
         """
-        return f"{self.platform_name}:{source}:{source_id}"
+        return f"{self.platform_name_str}-session:{source}:{source_id}"
 
     async def _get_session(self, source: str = "default", source_id: str = "default") -> Any:
         """创建新的 session普通 session，不使用 context_id
@@ -121,88 +172,75 @@ class BaseConnector(ABC):
     # ==================== 需要子类实现的抽象方法 ====================
 
     @abstractmethod
-    async def extract_summary_stream(
-        self,
-        urls: List[str]
-    ) -> List[Dict[str, Any]]:
-        """提取内容摘要（子类必须实现）
-
-        Args:
-            urls: 要提取的URL列表
-
-        Returns:
-            List[Dict]: 提取结果列表
-        """
-        raise NotImplementedError(f"{self.platform_name} does not support extract_summary_stream")
-
-    @abstractmethod
     async def get_note_detail(
         self,
-        urls: List[str]
+        urls: List[str],
+        source: str = "default",
+        source_id: str = "default",
+        concurrency: int = 2
     ) -> List[Dict[str, Any]]:
-        """获取笔记/文章详情（子类必须实现）
+        """批量获取笔记/文章详情（子类必须实现）
 
         Args:
             urls: 要提取的URL列表
+            source: 来源标识
+            source_id: 来源ID
+            concurrency: 并发数
 
         Returns:
-            List[Dict]: 提取结果列表
+            List[Dict]: 提取结果列表，每个元素包含 url、success、data 等字段
         """
         raise NotImplementedError(f"{self.platform_name} does not support get_note_detail")
 
     @abstractmethod
     async def harvest_user_content(
         self,
-        creator_id: str,
+        creator_ids: List[str],
         limit: Optional[int] = None,
-        extract_details: bool = False
+        source: str = "default",
+        source_id: str = "default",
+        concurrency: int = 2
     ) -> List[Dict[str, Any]]:
-        """通过创作者ID提取内容（子类必须实现）
+        """批量抓取创作者内容（子类必须实现）
 
         Args:
-            creator_id: 创作者ID
-            limit: 限制数量
-            extract_details: 是否提取详情
+            creator_ids: 创作者ID列表
+            limit: 每个创作者限制数量
+            source: 来源标识
+            source_id: 来源ID
+            concurrency: 并发数
 
         Returns:
-            List[Dict]: 提取结果列表
+            List[Dict]: 提取结果列表，每个元素包含 creator_id、success、data 等字段
         """
-        raise NotImplementedError(f"{self.platform_name} does not support extract_by_creator_id")
+        raise NotImplementedError(f"{self.platform_name} does not support harvest_user_content")
 
     @abstractmethod
     async def search_and_extract(
         self,
-        keyword: str,
+        keywords: List[str],
         limit: int = 20,
-        extract_details: bool = False
+        user_id: Optional[str] = None,
+        source: str = "default",
+        source_id: str = "default",
+        concurrency: int = 2
     ) -> List[Dict[str, Any]]:
-        """搜索并提取内容（子类必须实现）
+        """批量搜索并提取内容（子类必须实现）
 
         Args:
-            keyword: 搜索关键词
-            limit: 限制数量
-            extract_details: 是否提取详情
+            keywords: 搜索关键词列表
+            limit: 每个关键词限制结果数量
+            user_id: 可选的用户ID过滤
+            source: 来源标识
+            source_id: 来源ID
+            concurrency: 并发数
 
         Returns:
-            List[Dict]: 搜索结果列表
+            List[Dict]: 搜索结果列表，每个元素包含 keyword、success、data 等字段
         """
-        raise NotImplementedError(f"{self.platform_name} does not support harvest_user_content")
+        raise NotImplementedError(f"{self.platform_name} does not support search_and_extract")
 
-    async def harvest_user_content(
-        self,
-        user_id: str,
-        limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
-        """采收用户内容（可选实现）
-
-        Args:
-            user_id: 用户ID
-            limit: 限制数量
-
-        Returns:
-            List[Dict]: 内容列表
-        """
-        raise NotImplementedError(f"{self.platform_name} does not support harvest_user_content")
+    # ==================== 可选实现的辅助方法 ====================
 
     async def login_with_cookies(
             self,
@@ -210,19 +248,44 @@ class BaseConnector(ABC):
             source: str = "default",
             source_id: str = "default"
     ) -> str:
-        """根据cookie登陆（可选实现）
+        """使用 Cookie 登录（可选实现）
+
+        Args:
+            cookies: Cookie 字典
+            source: 来源标识
+            source_id: 来源ID
 
         Returns:
             str: context_id 用于恢复登录态
         """
         raise NotImplementedError(f"{self.platform_name} does not support login_with_cookies")
 
+    async def login_with_qrcode(
+            self,
+            source: str = "default",
+            source_id: str = "default",
+            timeout: int = 120
+    ) -> Dict[str, Any]:
+        """二维码登录（可选实现）
+
+        Args:
+            source: 来源标识
+            source_id: 来源ID
+            timeout: 超时时间（秒）
+
+        Returns:
+            Dict: 包含二维码URL等信息的字典
+        """
+        raise NotImplementedError(f"{self.platform_name} does not support login_with_qrcode")
+
     async def publish_content(
         self,
         content: str,
         content_type: str = "text",
         images: Optional[List[str]] = None,
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        source: str = "default",
+        source_id: str = "default"
     ) -> Dict[str, Any]:
         """发布内容（可选实现）
 
@@ -231,6 +294,8 @@ class BaseConnector(ABC):
             content_type: 内容类型
             images: 图片列表
             tags: 标签列表
+            source: 来源标识
+            source_id: 来源ID
 
         Returns:
             Dict: 发布结果

@@ -2827,14 +2827,14 @@ telegram = ["requests"]
 
 [[package]]
 name = "tracerite"
-version = "2.2.1"
+version = "2.3.1"
 description = "Human-readable HTML tracebacks for Python exceptions"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "tracerite-2.2.1-py3-none-any.whl", hash = "sha256:1d1e7ac8434ee64e550f083c87c76751b0776741ac1b5329852251006d180178"},
-    {file = "tracerite-2.2.1.tar.gz", hash = "sha256:be7ce6c722219d505fc7f251194c10a450401d97ebd92a205d5b0b86af2ceed6"},
+    {file = "tracerite-2.3.1-py3-none-any.whl", hash = "sha256:5f9595ba90f075b58e14a9baf84d8204fec3cdce50029f1c32d757af79d9ccbe"},
+    {file = "tracerite-2.3.1.tar.gz", hash = "sha256:f46ee672d240d500a2331781b09eb33564d473f6ae60cd871ebce6c2413cffa8"},
 ]
 
 [package.dependencies]

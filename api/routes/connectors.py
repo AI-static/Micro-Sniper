@@ -296,6 +296,112 @@ async def login(request: Request):
         ).model_dump(), status=500)
 
 
+@connectors_bp.post("/login/<platform:str>/confirm")
+async def confirm_login(request: Request, platform: str):
+    """用户确认已完成登录 - 保存 context
+
+    用户在云浏览器中完成登录后，点击"我已完成登录"按钮调用此接口：
+    1. 从 connector._login_tasks 获取 session 和 browser
+    2. 调用 _cleanup_resources 清理资源
+    3. 调用 agent_bay.delete(session, sync_context=True) 落盘保存
+    """
+    try:
+        data = request.json or {}
+        context_id = data.get("context_id")
+
+        if not context_id:
+            return json(BaseResponse(
+                code=ErrorCode.BAD_REQUEST,
+                message="context_id is required",
+                data=None
+            ).model_dump(), status=400)
+
+        auth_info = request.ctx.auth_info
+
+        # 获取 connector
+        from models.connectors import PlatformType
+        from services.sniper.connectors.xiaohongshu import XiaohongshuConnector
+        from services.sniper.connectors.douyin import DouyinConnector
+
+        try:
+            platform_type = PlatformType(platform)
+        except ValueError:
+            return json(BaseResponse(
+                code=ErrorCode.BAD_REQUEST,
+                message=f"Unsupported platform: {platform}",
+                data=None
+            ).model_dump(), status=400)
+
+        # 创建 connector 实例
+        if platform_type == PlatformType.XIAOHONGSHU:
+            connector = XiaohongshuConnector(playwright=request.app.ctx.playwright)
+        elif platform_type == PlatformType.DOUYIN:
+            connector = DouyinConnector(playwright=request.app.ctx.playwright)
+        else:
+            return json(BaseResponse(
+                code=ErrorCode.BAD_REQUEST,
+                message=f"Platform {platform} not supported yet",
+                data=None
+            ).model_dump(), status=400)
+
+        # 从 _login_tasks 获取 session 和 browser
+        if context_id not in connector._login_tasks:
+            return json(BaseResponse(
+                code=ErrorCode.NOT_FOUND,
+                message=f"Login task not found for context: {context_id}",
+                data=None
+            ).model_dump(), status=404)
+
+        login_task = connector._login_tasks[context_id]
+        session = login_task.get("session")
+        browser = login_task.get("browser")
+
+        if not session:
+            return json(BaseResponse(
+                code=ErrorCode.INTERNAL_ERROR,
+                message="Session not found in login task",
+                data=None
+            ).model_dump(), status=500)
+
+        # 清理资源并保存 context
+        logger.info(f"[Auth] User confirmed login for {platform}, saving context: {context_id}")
+
+        try:
+            # 调用 connector 的 _cleanup_resources 方法
+            await connector._cleanup_resources(session, browser)
+
+            # 保存 context（sync_context=True 落盘）
+            await connector.agent_bay.delete(session, sync_context=True)
+
+            logger.info(f"[Auth] Context saved successfully: {context_id}")
+
+        except Exception as e:
+            logger.error(f"[Auth] Error saving context: {e}")
+            # 即使出错也继续，因为 context 可能已经保存
+
+        # 清理 _login_tasks
+        del connector._login_tasks[context_id]
+
+        return json(BaseResponse(
+            code=ErrorCode.SUCCESS,
+            message="Login context saved successfully",
+            data={
+                "context_id": context_id,
+                "platform": platform,
+                "source": auth_info.source.value,
+                "source_id": auth_info.source_id
+            }
+        ).model_dump())
+
+    except Exception as e:
+        logger.error(f"确认登录失败: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=str(e),
+            data={"error": str(e)}
+        ).model_dump(), status=500)
+
+
 @connectors_bp.get("/platforms")
 async def list_platforms(request: Request):
     """获取支持的平台列表 - 展示多平台连接能力"""
