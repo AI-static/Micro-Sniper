@@ -65,7 +65,8 @@ class AuthMiddleware:
         exempt_routes = [
             "/health",
             "/callback/wechat_verify/",
-            "/static"
+            "/static",
+            "/favicon.ico"
         ]
 
         for route in exempt_routes:

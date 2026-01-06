@@ -150,6 +150,7 @@ class ConnectorService:
                 end
                 """
                 result = await redis_client.eval(lua_script, 1, full_lock_key)
+                logger.info(f"[ConnectorService] Released lock result: {result}")
                 if result:
                     released_count += 1
                     logger.debug(f"[ConnectorService] Released lock: {full_lock_key}")
@@ -414,13 +415,14 @@ class ConnectorService:
 
         Args:
             platform: 平台名称
-            method: 登录方法 (目前仅支持 cookie)
-            cookies: Cookie 数据
+            method: 登录方法 (支持 qrcode 和 cookie)
+            cookies: Cookie 数据（仅用于 cookie 登录）
 
         Returns:
             是否登录成功
         """
-        if platform == PlatformType.XIAOHONGSHU and method == LoginMethod.COOKIE:
+        # Cookie 登录
+        if method == LoginMethod.COOKIE:
             if not cookies:
                 raise ValueError("Cookie 登录需要提供 cookies 参数")
 
@@ -433,16 +435,19 @@ class ConnectorService:
                 return context_id
 
             return await self._execute_with_lock_and_limit(platform, "login", _execute)
-        elif platform == PlatformType.XIAOHONGSHU and method == LoginMethod.QRCODE:
+
+        # 二维码登录
+        elif method == LoginMethod.QRCODE:
             connector = self._get_connector(platform)
 
             async def _execute():
                 logger.info(f"[ConnectorService] QRCode login to {platform} for source:{self._source}, source_id:{self._source_id}")
                 result = await connector.login_with_qrcode(self._source, self._source_id)
-                logger.info(f"[ConnectorService] QRCode login result: {result.get('message')}")
+                logger.info(f"[ConnectorService] QRCode login result: {result.get('message', 'success')}")
                 return result
 
             return await self._execute_with_lock_and_limit(platform, "login", _execute)
+
         else:
             raise ValueError(f"不支持的登录方式: platform={platform}, method={method}")
 

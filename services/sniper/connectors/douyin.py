@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import time
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 
@@ -11,6 +12,9 @@ from utils.logger import logger
 from agentbay import ActOptions, ExtractOptions, CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
 from models.connectors import PlatformType
 
+class CheckLoginStatus(BaseModel):
+    """搜索结果模型"""
+    has_login: bool = Field(description="是否已经登陆")
 
 class SearchResult(BaseModel):
     """搜索结果模型"""
@@ -36,6 +40,7 @@ class DouyinConnector(BaseConnector):
 
     def __init__(self, playwright):
         super().__init__(platform_name=PlatformType.DOUYIN, playwright=playwright)
+        self._login_tasks = {}
 
     async def search_and_extract(
         self,
@@ -134,7 +139,7 @@ class DouyinConnector(BaseConnector):
                 }
 
         # 获取 session
-        session = await self._get_session(source, source_id)
+        session = await self._get_browser_session(source, source_id)
 
         try:
             # 并发执行搜索
@@ -150,11 +155,7 @@ class DouyinConnector(BaseConnector):
             return results
 
         finally:
-            # 清理 session
-            try:
-                await self.agent_bay.delete(session, sync_context=True)
-            except Exception as e:
-                logger.error(f"[douyin] Error cleaning up session: {e}")
+            await self._cleanup_resources(session, None)
 
     async def get_note_detail(
         self,
@@ -234,7 +235,7 @@ class DouyinConnector(BaseConnector):
                 }
 
         # 获取 session
-        session = await self._get_session(source, source_id)
+        session = await self._get_browser_session(source, source_id)
 
         try:
             # 并发执行提取
@@ -250,11 +251,7 @@ class DouyinConnector(BaseConnector):
             return results
 
         finally:
-            # 清理 session
-            try:
-                await self.agent_bay.delete(session, sync_context=True)
-            except Exception as e:
-                logger.error(f"[douyin] Error cleaning up session: {e}")
+            await self._cleanup_resources(session, None)
 
     async def harvest_user_content(
         self,
@@ -348,7 +345,7 @@ class DouyinConnector(BaseConnector):
                 }
 
         # 获取 session
-        session = await self._get_session(source, source_id)
+        session = await self._get_browser_session(source, source_id)
 
         try:
             # 并发执行采收
@@ -364,11 +361,7 @@ class DouyinConnector(BaseConnector):
             return results
 
         finally:
-            # 清理 session
-            try:
-                await self.agent_bay.delete(session, sync_context=True)
-            except Exception as e:
-                logger.error(f"[douyin] Error cleaning up session: {e}")
+            await self._cleanup_resources(session, None)
 
     async def login_with_cookies(
         self,
@@ -376,40 +369,30 @@ class DouyinConnector(BaseConnector):
         source: str = "default",
         source_id: str = "default"
     ) -> str:
-        """使用 Cookie 登录抖音
-
-        Args:
-            cookies: Cookie 字典
-            source: 来源标识
-            source_id: 来源ID
-
-        Returns:
-            str: context_id
-        """
+        """使用 Cookie 登录抖音"""
         context_key = self._build_context_id(source, source_id)
         logger.info(f"[douyin] Logging in with context_id: {context_key}")
 
-        # 创建持久化 context
-        context_result = await self.agent_bay.context.get(context_key, create=True)
-        if not context_result.success:
-            raise ValueError(f"Failed to create context: {context_result.error_message}")
+        # 获取或创建 Context
+        context_res = await self.agent_bay.context.get(context_key, create=True)
+        if not context_res.success:
+            raise ValueError(f"Failed to create context: {context_res.error_message}")
 
-        # 使用 context 创建 session
-        session_result = await self.agent_bay.create(
+        # 创建临时 Session 进行 Cookie 注入
+        session_res = await self.agent_bay.create(
             CreateSessionParams(
                 image_id="browser_latest",
-                browser_context=BrowserContext(context_result.context.id, auto_upload=True)
+                browser_context=BrowserContext(context_res.context.id, auto_upload=True)
             )
         )
+        if not session_res.success:
+            raise ValueError(f"Failed to create session: {session_res.error_message}")
 
-        if not session_result.success:
-            raise ValueError(f"Failed to create session: {session_result.error_message}")
-
-        session = session_result.session
+        session = session_res.session
+        browser = None
 
         try:
-            # 初始化浏览器
-            ok = await session.browser.initialize(BrowserOption(
+            await session.browser.initialize(BrowserOption(
                 screen=BrowserScreen(width=1920, height=1080),
                 solve_captchas=True,
                 use_stealth=True,
@@ -419,42 +402,44 @@ class DouyinConnector(BaseConnector):
                     locales=self.get_locale(),
                 ),
             ))
+            browser, context_p = await self._connect_cdp(session)
+            page = await context_p.new_page()
 
-            if not ok:
-                await self.agent_bay.delete(session, sync_context=False)
-                raise RuntimeError("Failed to initialize browser")
+            # 转换并注入 Cookies
+            cookies_list = [{
+                "name": k, "value": v, "domain": ".douyin.com", "path": "/",
+                "httpOnly": False, "secure": False, "expires": int(time.time()) + 86400
+            } for k, v in cookies.items()]
 
-            # 使用 Agent 注入 Cookie
-            cookies_list = [
-                {"name": k, "value": v, "domain": ".douyin.com", "path": "/"}
-                for k, v in cookies.items()
-            ]
+            await context_p.add_cookies(cookies_list)
+            await asyncio.sleep(0.5)
 
-            # 通过 Agent 注入 cookies（使用 JavaScript）
-            inject_act = ActOptions(
-                action=f"""
-                为当前页面注入以下 cookies：
-                {json.dumps(cookies_list, ensure_ascii=False)}
+            # 验证登录
+            await page.goto("https://www.douyin.com", timeout=60000)
+            await asyncio.sleep(1)
 
-                使用 document.cookie 注入每个 cookie，然后刷新页面。
-                """,
-                use_vision=False
-            )
+            # 检查登录状态
+            is_logged_in = await self._check_login_status_douyin(page)
+            logger.info(f"[douyin] Login status: {is_logged_in}")
 
-            await session.browser.agent.act(inject_act)
-            await asyncio.sleep(2)
+            if not is_logged_in:
+                raise ValueError("Login failed: cookies invalid or expired")
 
-            # 导航到抖音首页验证登录
-            await session.browser.agent.navigate("https://www.douyin.com")
-            await asyncio.sleep(3)
+            return context_res.context.id
 
-            logger.info(f"[douyin] Login completed with context_id: {context_key}")
-            return context_key
+        finally:
+            await self._cleanup_resources(session, browser)
 
-        except Exception as e:
-            logger.error(f"[douyin] Login failed: {e}")
-            await self.agent_bay.delete(session, sync_context=False)
-            raise
+    async def _check_login_status_douyin(self, page) -> bool:
+        """检查抖音登录状态"""
+        try:
+            # 检查是否有用户头像等登录标识
+            await page.wait_for_selector(".login-btn", timeout=3000)
+            # 如果找到登录按钮，说明未登录
+            return False
+        except:
+            # 如果没找到登录按钮，说明已登录
+            return True
 
     async def login_with_qrcode(
         self,
@@ -484,7 +469,7 @@ class DouyinConnector(BaseConnector):
         session_result = await self.agent_bay.create(
             CreateSessionParams(
                 image_id="browser_latest",
-                browser_context=BrowserContext(context_result.context.id, auto_upload=True)
+                browser_context=BrowserContext(context_result.context.id, auto_upload=False)
             )
         )
 
@@ -512,7 +497,20 @@ class DouyinConnector(BaseConnector):
 
             # 导航到抖音登录页
             await session.browser.agent.navigate("https://www.douyin.com")
-            await asyncio.sleep(2)
+            await asyncio.sleep(1.5)
+            extract_options = ExtractOptions(
+                instruction="""查看此页面，看是否有用户头像等信息，判断其状态是否为登陆。""",
+                use_vision=True,
+                schema=CheckLoginStatus
+            )
+
+            success, data = await session.browser.agent.extract(extract_options)
+            if success and data.has_login:
+                return {
+                    "success": True,
+                    "context_id": context_key,
+                    "message": "Has Logining"
+                    }
 
             # 使用 Agent 找到并点击登录方式，显示二维码
             login_act = ActOptions(
@@ -535,27 +533,63 @@ class DouyinConnector(BaseConnector):
 
             logger.info(f"[douyin] QRCode generated, waiting for scan...")
 
-            # 启动后台任务：等待扫码后保存 context
-            async def wait_and_cleanup():
-                try:
-                    await asyncio.sleep(timeout)
-                    logger.info(f"[douyin] Saving context after {timeout}s")
-                    await self.agent_bay.delete(session, sync_context=True)
-                    logger.info(f"[douyin] Context saved successfully")
-                except Exception as e:
-                    logger.error(f"[douyin] Background task error: {e}")
+            # 启动后台任务：等待扫码后优雅关闭
+            task = asyncio.create_task(self._wait_and_cleanup_after_scan(
+                session=session,
+                browser=None,
+                context_key=context_key,
+                timeout=timeout
+            ))
 
-            asyncio.create_task(wait_and_cleanup())
+            # 存储登录任务信息（包含 session 和 browser）
+            self._login_tasks[context_key] = {
+                "session": session,
+                "browser": None,
+                "task": task,
+                "context_key": context_key,
+                "timeout": timeout
+            }
 
             return {
                 "success": True,
                 "context_id": context_key,
                 "qrcode": qrcode_url,
                 "timeout": timeout,
-                "message": "QRCode generated, waiting for scan"
+                "message": "Cloud browser created, waiting for login",
+                "is_logged_in": False
             }
 
         except Exception as e:
-            logger.error(f"[douyin] QRCode login failed: {e}")
-            await self.agent_bay.delete(session, sync_context=False)
-            raise
+            logger.debug(f"[douyin] Check existing context failed: {e}")
+            await self._cleanup_resources(verify_session, browser_v)
+            await self.agent_bay.delete(verify_session, sync_context=False)
+
+    async def _wait_and_cleanup_after_scan(
+            self,
+            session: Any,
+            browser: Any,
+            context_key: str,
+            timeout: int = 120,
+    ):
+        """后台任务：等待指定秒数后优雅关闭并落盘上下文"""
+        logger.info(f"[douyin] Background task: waiting {timeout}s before cleanup")
+
+        try:
+            # 直接等待指定秒数，让用户扫码并让页面完全稳定
+            await asyncio.sleep(timeout)
+
+            logger.info(f"[douyin] Saving context and cleaning up: {context_key}")
+
+            # 优雅关闭浏览器，自动同步 cookies 到 context
+            await self._cleanup_resources(session, browser)
+            logger.info(f"[douyin] Context saved successfully")
+
+        except Exception as e:
+            logger.error(f"[douyin] Background task error: {e}")
+            await self._cleanup_resources(session, browser)
+        finally:
+            # 清理 _login_tasks 中的记录
+            if context_key in self._login_tasks:
+                logger.info(f"[douyin] Cleaning up _login_tasks entry: {context_key}")
+                del self._login_tasks[context_key]
+

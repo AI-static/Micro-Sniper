@@ -518,6 +518,8 @@ class XiaohongshuDeepAgent:
 
 # ========== 脚本主程序 ==========
 async def main():
+    source = "service"
+    source_id = "default"
     from tortoise import Tortoise
     from config.settings import create_db_config
 
@@ -529,20 +531,14 @@ async def main():
 
     async with async_playwright() as p:
         try:
-            analyzer = XiaohongshuDeepAgent(
-                source_id="system",
-                source="system",
-                playwright=p,
-                keywords=["星星人"]
-            )
 
             print(f"[核心词]: {analyzer.keywords}")
             print("-" * 30)
 
             # 创建任务
             task = await Task.create(
-                source="system",
-                source_id="system",
+                source=source,
+                source_id=source_id,
                 task_type="trend_analysis"
             )
             await task.start()
@@ -550,8 +546,8 @@ async def main():
 
             # 重新创建 analyzer，传入 task
             analyzer = XiaohongshuDeepAgent(
-                source_id="system",
-                source="system",
+                source_id=source_id,
+                source=source,
                 playwright=p,
                 keywords=["星星人", "IP文创"],
                 task=task

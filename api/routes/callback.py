@@ -21,8 +21,7 @@ async def wechat_verify_url(request: Request):
     
     Args:
         request: Sanic请求对象
-        service_name: 服务名称，用于区分不同的企业微信应用
-        
+
     Query Params:
         msg_signature: 企业微信生成的签名
         timestamp: 时间戳

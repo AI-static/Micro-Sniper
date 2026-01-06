@@ -199,6 +199,8 @@ class DouyinDeepAgent:
 # ========== 脚本主程序 ==========
 async def main():
     """独立运行脚本"""
+    source = "service"
+    source_id = "default"
     from tortoise import Tortoise
     from config.settings import create_db_config
 
@@ -210,15 +212,15 @@ async def main():
 
     try:
         analyzer = DouyinDeepAgent(
-            source_id="system",
-            source="system",
+            source=source,
+            source_id=source_id,
             keywords=["美食探店"]
         )
 
         # 创建任务
         task = await Task.create(
-            source="system",
-            source_id="system",
+            source=source,
+            source_id=source_id,
             task_type="trend_analysis"
         )
         await task.start()

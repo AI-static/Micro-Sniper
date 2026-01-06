@@ -2,17 +2,14 @@
 """微信公众号连接器 - 支持文章提取和监控"""
 
 import asyncio
-import json
 from agentbay import ActOptions, CreateSessionParams, BrowserOption, BrowserScreen, BrowserFingerprint
-from typing import Dict, Any, List, Optional, AsyncGenerator
-import aiohttp
+from typing import Dict, Any, List, Optional
 
 from .base import BaseConnector
 from utils.logger import logger
 from utils.exceptions import SessionCreationException, BrowserInitializationException
 from pydantic import BaseModel, Field
 from models.connectors import PlatformType
-from config.settings import settings
 
 class GzhArticleSummary(BaseModel):
     """公众号文章摘要（用于URL列表详情提取）"""
@@ -27,9 +24,6 @@ class WechatConnector(BaseConnector):
 
     def __init__(self, playwright):
         super().__init__(platform_name=PlatformType.WECHAT, playwright=playwright)
-        self.rss_url = settings.wechat.rss_url
-        self.rss_timeout = settings.wechat.rss_timeout
-        self.rss_buffer_size = settings.wechat.rss_buffer_size
 
     async def _get_browser_session(
             self,
@@ -150,23 +144,29 @@ class WechatConnector(BaseConnector):
 
     async def harvest_user_content(
         self,
-        user_id: str,
-        limit: Optional[int] = None
+        creator_ids: List[str],
+        limit: Optional[int] = None,
+        source: str = "default",
+        source_id: str = "default",
+        concurrency: int = 2
     ) -> List[Dict[str, Any]]:
         """采收公众号的所有文章
 
         Args:
-            user_id: 公众号的 __biz 参数
+            creator_ids: 公众号的 __biz 参数列表
             limit: 限制数量
+            source: 系统标识
+            source_id: 用户标识
+            concurrency: 并发数
         """
-        return await self.extract_by_creator_id(user_id, limit=limit, extract_details=False)
+        pass
     
     async def get_note_detail(
         self,
         urls: List[str],
-        concurrency: int = 3,
         source: str = "default",
-        source_id: str = "default"
+        source_id: str = "default",
+        concurrency: int = 2
     ) -> List[Dict[str, Any]]:
         """快速获取微信文章详情
         
@@ -291,192 +291,83 @@ class WechatConnector(BaseConnector):
             return results
         finally:
             await self.agent_bay.delete(session, sync_context=False)
-    
-    async def harvest_user_content(
+
+    async def harvest_user_content_by_creator(
         self,
         creator_id: str,
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """通过公众号ID提取文章
-        
+
         注意：此功能需要在微信客户端中打开链接，当前Web环境无法直接访问。
         需要对接agentbay的云桌面才能实现。
-        
+
         Args:
             creator_id: 公众号的 __biz 参数
             limit: 限制数量
-            extract_details: 是否提取详情
-            
+
         Returns:
             文章列表
         """
-        logger.error(f"[wechat] extract_by_creator_id not supported: {creator_id}")
-        
-        # 直接返回错误，提示需要微信客户端
-        raise NotImplementedError(
-            "微信公众号文章列表提取需要微信客户端环境，待开发。"
-        )
+        pass
 
-    
+
     async def _parse_json_stream(
         self,
         url: str,
         keyword: Optional[str] = None,
         limit: int = 20
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ):
         """高效流式解析 JSON 订阅源
-        
+
         Args:
             url: 订阅源 URL
             keyword: 搜索关键字（可选）
             limit: 返回结果数量限制
-            
+
         Yields:
             匹配的文章项
         """
-        count = 0
-        
-        try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=self.rss_timeout)) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        logger.error(f"[wechat] RSS feed returned status {response.status}")
-                        return
-                    
-                    # 使用流式读取，避免全量加载到内存
-                    buffer = ""
-                    in_items = False
-                    brace_count = 0
-                    in_string = False
-                    escape_next = False
-                    
-                    async for chunk in response.content.iter_chunked(self.rss_buffer_size):
-                        buffer += chunk.decode('utf-8', errors='ignore')
-                        
-                        # 如果还没找到 items 数组，继续查找
-                        if not in_items:
-                            items_start = buffer.find('"items":[')
-                            if items_start != -1:
-                                in_items = True
-                                buffer = buffer[items_start + 9:]  # 跳过 "items":[
-                                brace_count = 0
-                        
-                        # 已找到 items，开始解析每个对象
-                        while in_items and buffer:
-                            for i, char in enumerate(buffer):
-                                if escape_next:
-                                    escape_next = False
-                                    continue
-                                    
-                                if char == '\\':
-                                    escape_next = True
-                                    continue
-                                    
-                                if char == '"' and not escape_next:
-                                    in_string = not in_string
-                                    continue
-                                    
-                                if not in_string:
-                                    if char == '{':
-                                        if brace_count == 0:
-                                            item_start = i
-                                        brace_count += 1
-                                    elif char == '}':
-                                        brace_count -= 1
-                                        if brace_count == 0:
-                                            # 完整的 JSON 对象
-                                            item_json = buffer[item_start:i+1]
-                                            buffer = buffer[i+1:]
-                                            
-                                            try:
-                                                item = json.loads(item_json)
-                                                
-                                                # 关键字匹配
-                                                if keyword:
-                                                    search_text = f"{item.get('title', '')} {item.get('description', '')} {item.get('channel_name', '')}".lower()
-                                                    if keyword.lower() not in search_text:
-                                                        continue
-                                                
-                                                yield {
-                                                    "title": item.get("title", ""),
-                                                    "description": item.get("description", ""),
-                                                    "link": item.get("link", ""),
-                                                    "updated": item.get("updated", ""),
-                                                    "content": item.get("content", ""),
-                                                    "channel_name": item.get("channel_name", ""),
-                                                    "feed": item.get("feed", {}),
-                                                    "id": item.get("id", "")
-                                                }
-                                                
-                                                count += 1
-                                                if count >= limit:
-                                                    return
-                                                    
-                                            except json.JSONDecodeError:
-                                                logger.warning(f"[wechat] Failed to parse item JSON")
-                                            
-                                            break
-                            
-                            # 如果 buffer 太小，继续读取
-                            if len(buffer) < 100:
-                                break
-                                
-        except Exception as e:
-            logger.error(f"[wechat] Error parsing RSS feed: {e}")
-    
+        pass
+
     async def _search_from_rss(
         self,
         keyword: Optional[str] = None,
         limit: int = 20
     ) -> List[Dict[str, Any]]:
         """从 RSS 订阅源搜索文章
-        
+
         Args:
             keyword: 搜索关键字（可选）
             limit: 返回结果数量限制
-            
+
         Returns:
             搜索结果列表
         """
-        if not self.rss_url:
-            logger.warning("[wechat] RSS URL not configured")
-            return []
-        
-        logger.info(f"[wechat] Searching from RSS feed: {self.rss_url}")
-        
-        results = []
-        async for item in self._parse_json_stream(self.rss_url, keyword, limit):
-            results.append({
-                "success": True,
-                "data": item,
-                "source": "rss_feed"
-            })
-        
-        logger.info(f"[wechat] Found {len(results)} articles from RSS feed")
-        return results
-    
+        pass
+
     async def search_and_extract(
         self,
-        keyword: Optional[str] = None,
+        keywords: List[str],
         limit: int = 20,
+        user_id: Optional[str] = None,
         source: str = "default",
-        source_id: str = "default"
+        source_id: str = "default",
+        concurrency: int = 2
     ) -> List[Dict[str, Any]]:
         """搜索并提取微信文章
-        
+
         仅支持通过 RSS 订阅源获取文章
-        
+
         Args:
-            keyword: 搜索关键词（可选，如果不提供则返回所有文章）
-            limit: 限制数量
+            keywords: 搜索关键词列表
+            limit: 每个关键词限制结果数量
+            user_id: 可选的用户ID过滤
+            source: 系统标识
+            source_id: 用户标识
+            concurrency: 并发数
         Returns:
-            搜索结果
+            搜索结果列表
         """
-        # 检查是否配置了 RSS 订阅源
-        if not self.rss_url:
-            raise ValueError(
-                "WeChat RSS URL not configured. Please set WECHAT__RSS_URL in your environment variables."
-            )
-        
-        # 从 RSS 订阅源搜索
-        return await self._search_from_rss(keyword, limit)
+        pass
+

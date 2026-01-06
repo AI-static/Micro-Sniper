@@ -26,7 +26,6 @@ class XiaohongshuConnector(BaseConnector):
 
     def __init__(self, playwright):
         super().__init__(platform_name=PlatformType.XIAOHONGSHU, playwright=playwright)
-        self._login_tasks = {}
 
     # ==================== 资源管理与通用逻辑  ====================
 
@@ -256,35 +255,6 @@ class XiaohongshuConnector(BaseConnector):
             await self._cleanup_resources(verify_session, browser_v)
             await self.agent_bay.delete(verify_session, sync_context=False)
 
-
-    async def _wait_and_cleanup_after_scan(
-            self,
-            session: Any,
-            browser: Any,
-            context_key: str,
-            timeout: int = 60,
-    ):
-        """后台任务：等待60秒后优雅关闭并落盘上下文"""
-        logger.info(f"[xiaohongshu] Background task: waiting {timeout}s before cleanup")
-
-        try:
-            # 直接等待指定秒数，让用户扫码并让页面完全稳定
-            await asyncio.sleep(timeout)
-
-            logger.info(f"[xiaohongshu] Saving context and cleaning up: {context_key}")
-
-            # 优雅关闭浏览器，自动同步 cookies 到 context
-            await self._cleanup_resources(session, browser)
-            logger.info(f"[xiaohongshu] Context saved successfully")
-
-        except Exception as e:
-            logger.error(f"[xiaohongshu] Background task error: {e}")
-            await self._cleanup_resources(session, browser)
-        finally:
-            # 清理 _login_tasks 中的记录
-            if context_key in self._login_tasks:
-                logger.info(f"[xiaohongshu] Cleaning up _login_tasks entry: {context_key}")
-                del self._login_tasks[context_key]
 
     async def _get_qrcode_image(self, page: Page, source: str = "default", source_id: str = "default") -> Optional[str]:
         """获取二维码图片并上传到OSS

@@ -403,12 +403,14 @@ class CreatorSniper:
             # 上次发布内容
             lines.append(f"\n   📅 前{self.latency}发布的最后一篇:")
             if last_note:
+                last_note_url = last_note.get("full_url", "")
                 last_time = last_note.get("update_time", "未知时间")
                 last_title = last_note.get("title", "无标题")
                 lines.append(f"      ⏰ 时间: {last_time}")
                 lines.append(f"      📝 标题: {last_title}")
                 lines.append(f"      💬 互动: 👍{last_note.get('liked_count', 0)} ⭐{last_note.get('collected_count', 0)} 💬{last_note.get('comment_count', 0)}")
-                
+                lines.append(f"      🔗 链接: {last_note_url}")
+
                 last_desc = last_note.get('desc', '')
                 if last_desc:
                     lines.append(f"      📖 简介: {last_desc[:80]}{'...' if len(last_desc) > 80 else ''}")
@@ -478,6 +480,9 @@ class CreatorSniper:
 # ========== 脚本主程序 ==========
 async def main():
     """主程序入口"""
+    source = "service"
+    source_id = "default"
+
     from tortoise import Tortoise
     from config.settings import create_db_config
 
@@ -491,7 +496,7 @@ async def main():
     async with async_playwright() as p:
         # 监控的创作者列表（示例）
         creator_ids = [
-            "657f31eb000000003d036737", "5b7fc43c39b013000158458e" # 苹狗大王，海豹王
+            "5b7fc43c39b013000158458e" # 苹狗大王，海豹王
         ]
 
         print(f"监控创作者: {creator_ids}")
@@ -499,14 +504,14 @@ async def main():
 
         # 创建任务
         task = await Task.create(
-            source="system",
-            source_id="system",
+            source=source,
+            source_id=source_id,
             task_type="creator_monitor"
         )
         await task.start()
 
         # 初始化狙击手（传入 task）
-        sniper = CreatorSniper(source="system", source_id="system", playwright=p, task=task)
+        sniper = CreatorSniper(source=source, source_id=source_id, playwright=p, task=task)
 
         # 执行监控
         report = await sniper.monitor_creators(creator_ids)

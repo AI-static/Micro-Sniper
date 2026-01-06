@@ -40,6 +40,7 @@ class BaseConnector(ABC):
         
         # Playwright 实例管理
         self.playwright = playwright
+        self._login_tasks = {}
 
     @property
     def platform_name_str(self) -> str:
@@ -88,6 +89,35 @@ class BaseConnector(ABC):
         context = browser.contexts[0] if browser.contexts else await browser.new_context()
         return browser, context
 
+    async def _wait_and_cleanup_after_scan(
+            self,
+            session: Any,
+            browser: Any,
+            context_key: str,
+            timeout: int = 60,
+    ):
+        """后台任务：等待60秒后优雅关闭并落盘上下文"""
+        logger.info(f"[Connector] Background task: waiting {timeout}s before cleanup")
+
+        try:
+            # 直接等待指定秒数，让用户扫码并让页面完全稳定
+            await asyncio.sleep(timeout)
+
+            logger.info(f"[Connector] Saving context and cleaning up: {context_key}")
+
+            # 优雅关闭浏览器，自动同步 cookies 到 context
+            await self._cleanup_resources(session, browser)
+            logger.info(f"[Connector] Context saved successfully")
+
+        except Exception as e:
+            logger.error(f"[Connector] Background task error: {e}")
+            await self._cleanup_resources(session, browser)
+        finally:
+            # 清理 _login_tasks 中的记录
+            if context_key in self._login_tasks:
+                logger.info(f"[Connector] Cleaning up _login_tasks entry: {context_key}")
+                del self._login_tasks[context_key]
+
     async def _cleanup_resources(self, session, browser):
         """统一清理资源"""
 
@@ -123,51 +153,6 @@ class BaseConnector(ABC):
             session key 字符串
         """
         return f"{self.platform_name_str}-session:{source}:{source_id}"
-
-    async def _get_session(self, source: str = "default", source_id: str = "default") -> Any:
-        """创建新的 session普通 session，不使用 context_id
-
-        Args:
-            source: 系统标识
-            source_id: 用户标识
-
-        Returns:
-            session 对象
-        """
-        from agentbay import CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
-        
-        key = self._build_session_key(source, source_id)
-        
-        # 创建 session
-        session_result = await self.agent_bay.create(
-            CreateSessionParams(
-                image_id="browser_latest",
-                browser_context=BrowserContext(key, auto_upload=True)
-            )
-        )
-        
-        if not session_result.success:
-            raise RuntimeError(f"Failed to create session: {session_result.error_message}")
-        
-        session = session_result.session
-        
-        # 初始化浏览器
-        ok = await session.browser.initialize(BrowserOption(
-            screen=BrowserScreen(width=1920, height=1080),
-            solve_captchas=True,
-            use_stealth=True,
-            fingerprint=BrowserFingerprint(
-                devices=["desktop"],
-                operating_systems=["windows"],
-                locales=self.get_locale(),
-            ),
-        ))
-        
-        if not ok:
-            await self.agent_bay.delete(session, sync_context=False)
-            raise RuntimeError("Failed to initialize browser")
-        
-        return session
 
     # ==================== 需要子类实现的抽象方法 ====================
 

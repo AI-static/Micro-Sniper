@@ -37,6 +37,7 @@ async function login() {
         return;
     }
 
+    loading.classList.remove('d-none');
     loading.classList.add('active');
 
     try {
@@ -61,10 +62,24 @@ async function login() {
         }
     } catch (error) {
         console.error('Login error:', error);
-        const errorMsg = error.response?.data?.message || error.message || 'Invalid API key. Please try again.';
+        // Handle different error formats
+        let errorMsg = 'Invalid API key. Please try again.';
+        if (error.response) {
+            // Auth middleware returns {success: false, error: "...", message: "..."}
+            if (error.response.data?.error === 'UNAUTHORIZED') {
+                errorMsg = error.response.data.message || errorMsg;
+            }
+            // API endpoint returns {code: ..., message: "...", data: {...}}
+            else if (error.response.data?.message) {
+                errorMsg = error.response.data.message;
+            }
+        } else if (error.message) {
+            errorMsg = error.message;
+        }
         errorDiv.textContent = errorMsg;
         errorDiv.classList.remove('hidden');
     } finally {
+        loading.classList.add('d-none');
         loading.classList.remove('active');
     }
 }
@@ -97,22 +112,29 @@ function showSection(section) {
     // Hide all sections
     document.getElementById('tasksSection').classList.add('hidden');
     document.getElementById('connectorsSection').classList.add('hidden');
-    document.getElementById('platformsSection').classList.add('hidden');
+    document.getElementById('platformsSection').classList.add('hidden');    document.getElementById('authSection').classList.add('hidden');
 
     // Show selected section
-    document.getElementById(section + 'Section').classList.remove('hidden');
+    const selectedSection = document.getElementById(section + 'Section');
+    if (selectedSection) {
+        selectedSection.classList.remove('hidden');
+    }
 
     // Update nav
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.remove('active');
     });
-    event.target.classList.add('active');
+    if (event && event.target) {
+        event.target.classList.add('active');
+    }
 
     // Refresh data if needed
     if (section === 'platforms') {
         loadPlatforms();
     } else if (section === 'tasks') {
         refreshTasks();
+    } else if (section === 'auth') {
+        loadAllPlatformLoginStatus();
     }
 }
 
@@ -121,11 +143,11 @@ function setLoading(btnId, loading) {
     const btn = document.querySelector(`#${btnId} .loading`);
     if (btn) {
         if (loading) {
+            btn.classList.remove('d-none');
             btn.classList.add('active');
-            document.getElementById(btnId).disabled = true;
         } else {
+            btn.classList.add('d-none');
             btn.classList.remove('active');
-            document.getElementById(btnId).disabled = false;
         }
     }
 }
@@ -820,3 +842,292 @@ async function logoutPlatform(platform) {
 // Global variables for login state
 let currentLoginPlatform = null;
 let currentLoginMethod = null;
+
+// ============ PLATFORM LOGIN MANAGEMENT ============
+
+// Current selected platform
+let currentLoginPlatform = null;
+let loginCheckInterval = null;
+
+// Load all platforms login status
+async function loadAllPlatformLoginStatus() {
+    const container = document.getElementById('loginStatusList');
+    container.innerHTML = `
+        <div class="text-center text-muted py-4">
+            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Checking login status...</p>
+        </div>
+    `;
+
+    try {
+        const response = await api.get('/connectors/platforms');
+        const platforms = response.data.data.platforms;
+
+        container.innerHTML = platforms.map(platform => `
+            <div class="d-flex justify-content-between align-items-center mb-3 p-2 border rounded">
+                <div>
+                    <span class="me-2">${getPlatformIcon(platform.name)}</span>
+                    <strong>${platform.display_name}</strong>
+                </div>
+                <div id="status-badge-${platform.name}">
+                    <span class="badge bg-secondary">Checking...</span>
+                </div>
+            </div>
+        `).join('');
+
+        // Check login status for each platform
+        for (const platform of platforms) {
+            checkPlatformLoginStatus(platform.name);
+        }
+
+    } catch (error) {
+        console.error('Failed to load platforms:', error);
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                Failed to load platforms
+            </div>
+        `;
+    }
+}
+
+// Show login options when platform is selected
+function loadPlatformLoginOptions() {
+    const platform = document.getElementById('loginPlatformSelect').value;
+    const optionsContainer = document.getElementById('loginOptionsContainer');
+    const qrCard = document.getElementById('qrCodeCard');
+    const cookieCard = document.getElementById('cookieLoginCard');
+
+    // Hide cards
+    qrCard.classList.add('hidden');
+    cookieCard.classList.add('hidden');
+
+    // Stop any existing login check
+    if (loginCheckInterval) {
+        clearInterval(loginCheckInterval);
+        loginCheckInterval = null;
+    }
+
+    if (!platform) {
+        optionsContainer.classList.add('hidden');
+        return;
+    }
+
+    currentLoginPlatform = platform;
+    optionsContainer.classList.remove('hidden');
+}
+
+// Start QR Code login
+async function startQRCodeLogin() {
+    if (!currentLoginPlatform) {
+        showToast('Error', 'Please select a platform first', 'error');
+        return;
+    }
+
+    const qrCard = document.getElementById('qrCodeCard');
+    const cookieCard = document.getElementById('cookieLoginCard');
+    const container = document.getElementById('qrCodeContainer');
+    const hint = document.getElementById('qrCodeHint');
+    const status = document.getElementById('loginStatus');
+
+    // Hide cookie card, show QR card
+    cookieCard.classList.add('hidden');
+    qrCard.classList.remove('hidden');
+
+    container.innerHTML = `
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    `;
+    hint.textContent = 'Loading QR code...';
+    status.innerHTML = '';
+
+    try {
+        const response = await api.post('/connectors/login', {
+            platform: currentLoginPlatform,
+            method: 'qrcode'
+        });
+
+        if (response.data?.code === 0 && response.data?.data?.qrcode_url) {
+            // Display QR code
+            container.innerHTML = `
+                <img src="${response.data.data.qrcode_url}" alt="QR Code" style="width: 250px; height: 250px; border: 2px solid #e2e8f0; border-radius: 8px;">
+            `;
+
+            hint.textContent = 'Please scan the QR code with your mobile device to login';
+
+            // Start polling for login status
+            startLoginStatusPolling();
+        } else {
+            throw new Error(response.data?.message || 'Failed to get QR code');
+        }
+    } catch (error) {
+        console.error('QR code login error:', error);
+        container.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                ${error.response?.data?.message || error.message || 'Failed to load QR code'}
+            </div>
+        `;
+        hint.textContent = 'Failed to load QR code';
+    }
+}
+
+// Start Cookie login
+function startCookieLogin() {
+    if (!currentLoginPlatform) {
+        showToast('Error', 'Please select a platform first', 'error');
+        return;
+    }
+
+    const qrCard = document.getElementById('qrCodeCard');
+    const cookieCard = document.getElementById('cookieLoginCard');
+
+    // Hide QR card, show cookie card
+    qrCard.classList.add('hidden');
+    cookieCard.classList.remove('hidden');
+
+    // Clear previous results
+    document.getElementById('cookieLoginResult').innerHTML = '';
+    document.getElementById('cookieInput').value = '';
+}
+
+// Submit cookie login
+async function submitCookieLogin(event) {
+    event.preventDefault();
+
+    if (!currentLoginPlatform) {
+        showToast('Error', 'Please select a platform first', 'error');
+        return;
+    }
+
+    const cookieInput = document.getElementById('cookieInput');
+    const cookies = cookieInput.value.trim();
+    const resultDiv = document.getElementById('cookieLoginResult');
+
+    if (!cookies) {
+        showToast('Error', 'Please enter cookies', 'error');
+        return;
+    }
+
+    let cookiesObj;
+    try {
+        cookiesObj = JSON.parse(cookies);
+    } catch (e) {
+        resultDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i> Invalid JSON format
+            </div>
+        `;
+        return;
+    }
+
+    resultDiv.innerHTML = `
+        <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+        <span class="ms-2">Logging in...</span>
+    `;
+
+    try {
+        const response = await api.post('/connectors/login', {
+            platform: currentLoginPlatform,
+            method: 'cookie',
+            cookies: cookiesObj
+        });
+
+        if (response.data?.code === 0) {
+            resultDiv.innerHTML = `
+                <div class="alert alert-success">
+                    <i class="bi bi-check-circle"></i> Login successful!
+                </div>
+            `;
+            showToast('Success', 'Login successful!', 'success');
+
+            // Refresh login status
+            setTimeout(() => {
+                checkPlatformLoginStatus(currentLoginPlatform);
+                cookieInput.value = '';
+                resultDiv.innerHTML = '';
+            }, 1000);
+        } else {
+            throw new Error(response.data?.message || 'Login failed');
+        }
+    } catch (error) {
+        console.error('Cookie login error:', error);
+        resultDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i>
+                ${error.response?.data?.message || error.message || 'Login failed'}
+            </div>
+        `;
+    }
+}
+
+// Start polling for login status
+function startLoginStatusPolling() {
+    if (loginCheckInterval) {
+        clearInterval(loginCheckInterval);
+    }
+
+    // Poll every 2 seconds
+    loginCheckInterval = setInterval(async () => {
+        await checkPlatformLoginStatus(currentLoginPlatform, true);
+    }, 2000);
+
+    // Stop after 2 minutes
+    setTimeout(() => {
+        if (loginCheckInterval) {
+            clearInterval(loginCheckInterval);
+            loginCheckInterval = null;
+            document.getElementById('qrCodeHint').textContent = 'QR code expired. Please try again.';
+        }
+    }, 120000);
+}
+
+// Check platform login status
+async function checkPlatformLoginStatus(platform, isPolling = false) {
+    const statusBadge = document.getElementById(`status-badge-${platform}`);
+    const loginStatusDiv = document.getElementById('loginStatus');
+
+    if (!statusBadge && !isPolling) return;
+
+    try {
+        const response = await api.get(`/connectors/context/${platform}`);
+        const isLoggedIn = response.data?.data?.exists || false;
+
+        if (isLoggedIn) {
+            if (statusBadge) {
+                statusBadge.innerHTML = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Logged In</span>';
+            }
+
+            if (isPolling && loginStatusDiv) {
+                loginStatusDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i> Login successful!
+                    </div>
+                `;
+                showToast('Success', 'Login successful!', 'success');
+
+                // Stop polling
+                if (loginCheckInterval) {
+                    clearInterval(loginCheckInterval);
+                    loginCheckInterval = null;
+                }
+
+                // Hide QR code card after 2 seconds
+                setTimeout(() => {
+                    document.getElementById('qrCodeCard').classList.add('hidden');
+                }, 2000);
+            }
+        } else {
+            if (statusBadge) {
+                statusBadge.innerHTML = '<span class="badge bg-secondary"><i class="bi bi-x-circle"></i> Not Logged In</span>';
+            }
+        }
+    } catch (error) {
+        if (statusBadge) {
+            statusBadge.innerHTML = '<span class="badge bg-secondary"><i class="bi bi-x-circle"></i> Not Logged In</span>';
+        }
+    }
+}
