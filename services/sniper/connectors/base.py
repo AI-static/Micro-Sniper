@@ -74,7 +74,17 @@ class BaseConnector(ABC):
         session = session_result.session
 
         # 初始化浏览器
-        ok = await session.browser.initialize(BrowserOption())
+        ok = await session.browser.initialize(
+            BrowserOption(
+                screen=BrowserScreen(width=1920, height=1080),
+                solve_captchas=True,
+                use_stealth=True,
+                fingerprint=BrowserFingerprint(
+                    devices=["desktop"],
+                    operating_systems=["windows"],
+                    locales=self.get_locale(),
+                ),
+            ))
         if not ok:
             await self.agent_bay.delete(session, sync_context=False)
             raise BrowserInitializationException("Failed to initialize browser")

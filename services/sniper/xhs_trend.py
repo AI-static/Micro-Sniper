@@ -531,10 +531,6 @@ async def main():
 
     async with async_playwright() as p:
         try:
-
-            print(f"[核心词]: {analyzer.keywords}")
-            print("-" * 30)
-
             # 创建任务
             task = await Task.create(
                 source=source,
@@ -542,7 +538,6 @@ async def main():
                 task_type="trend_analysis"
             )
             await task.start()
-            print(f"[Task ID]: {task.id}")
 
             # 重新创建 analyzer，传入 task
             analyzer = XiaohongshuDeepAgent(
@@ -552,6 +547,10 @@ async def main():
                 keywords=["星星人", "IP文创"],
                 task=task
             )
+
+            print(f"[核心词]: {analyzer.keywords}")
+            print("-" * 30)
+            print(f"[Task ID]: {task.id}")
 
             # 执行分析
             analysis = await analyzer.analyze_trends(task=task)

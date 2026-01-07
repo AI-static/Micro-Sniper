@@ -496,7 +496,7 @@ async def main():
     async with async_playwright() as p:
         # 监控的创作者列表（示例）
         creator_ids = [
-            "5b7fc43c39b013000158458e" # 苹狗大王，海豹王
+            "657f31eb000000003d036737", "5b7fc43c39b013000158458e" # 苹狗大王，海豹王
         ]
 
         print(f"监控创作者: {creator_ids}")

@@ -386,7 +386,7 @@ class XiaohongshuConnector(BaseConnector):
             limit: Optional[int] = None,
             source: str = "default",
             source_id: str = "default",
-            concurrency: int = 2
+            concurrency: int = 1
     ) -> List[Dict[str, Any]]:
         """批量抓取创作者笔记"""
 

@@ -16,13 +16,15 @@ class CheckLoginStatus(BaseModel):
     """搜索结果模型"""
     has_login: bool = Field(description="是否已经登陆")
 
-class SearchResult(BaseModel):
+class SearchItems(BaseModel):
     """搜索结果模型"""
     title: str = Field(description="视频标题")
     url: str = Field(description="视频链接")
     author: str = Field(description="作者昵称")
     liked_count: str = Field(description="点赞数")
 
+class SearchResult(BaseModel):
+    items: SearchItems = Field(description="条目列表")
 
 class VideoDetail(BaseModel):
     """视频详情模型"""
@@ -110,7 +112,7 @@ class DouyinConnector(BaseConnector):
                 )
 
                 success, data = await session.browser.agent.extract(extract_options)
-
+                logger.info(f"搜索结果是：{success} {data}")
                 if success and data:
                     # 将 Pydantic 模型转换为字典
                     results = [item.model_dump() if hasattr(item, 'model_dump') else item for item in data]
@@ -202,6 +204,7 @@ class DouyinConnector(BaseConnector):
                     请尽可能准确地提取这些信息。
                     """,
                     schema=VideoDetail,
+                    use_vision=True,
                     use_text_extract=True
                 )
 
@@ -289,31 +292,36 @@ class DouyinConnector(BaseConnector):
                     1. 如果有弹窗，先关闭
                     2. 找到并点击搜索框
                     3. 输入创作者名称或ID：{creator_id}
-                    4. 按回车搜索
-                    5. 在搜索结果中找到"用户"或"创作者"标签
-                    6. 点击该标签查看用户列表
-                    7. 点击第一个匹配的用户进入主页
+                    4. 按回车搜索，点击第一个匹配的用户进入主页
                     """,
                     use_vision=True
                 )
 
-                act_result = await session.browser.agent.act(search_act)
-                logger.info(f"[douyin] Search user action: {act_result}")
+                results = await session.browser.agent.act(search_act)
+                logger.info(f"[douyin] Search user action: {results}")
 
-                await asyncio.sleep(3)
+                if not results.success:
+                    return {
+                        "creator_id": creator_id,
+                        "success": False,
+                        "data": "动作未成功"
+                    }
+
+                await asyncio.sleep(5)
 
                 # 3. 提取用户主页的视频列表
                 max_videos = limit or 20
                 extract_options = ExtractOptions(
                     instruction=f"""
-                    从当前抖音用户主页中提取视频列表：
+                    从当前页面中提取视频列表：
                     1. 提取前 {max_videos} 个视频
                     2. 每个视频包括：标题、链接、点赞数
 
                     只返回视频列表，不要返回其他内容。
                     """,
                     schema=SearchResult,
-                    use_text_extract=True
+                    use_text_extract=True,
+                    use_vision=True
                 )
 
                 success, data = await session.browser.agent.extract(extract_options)

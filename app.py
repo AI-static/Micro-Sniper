@@ -20,6 +20,11 @@ def create_app() -> Sanic:
 
     # 配置
     app.config.REQUEST_MAX_SIZE = 1024 * 1024 * 200
+
+    # 超时配置（适配二维码登录等长时间操作）
+    app.config.REQUEST_TIMEOUT = 300  # 请求超时：5分钟
+    app.config.RESPONSE_TIMEOUT = 300  # 响应超时：5分钟
+
     app.ctx.settings = settings
 
     # 静态文件服务（启用 index 参数处理目录访问）
