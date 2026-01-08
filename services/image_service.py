@@ -269,7 +269,10 @@ class ImageService:
             # 处理base64格式：解码并上传到OSS
             elif b64_json:
                 try:
-                    # 解码 base64
+                    # 解码 base64 (修复padding)
+                    missing_padding = len(b64_json) % 4
+                    if missing_padding:
+                        b64_json += '=' * (4 - missing_padding)
                     image_bytes = base64.b64decode(b64_json)
 
                     # 生成文件名

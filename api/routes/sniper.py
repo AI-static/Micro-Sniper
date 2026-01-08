@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Sniper API 路由 - 支持多平台趋势分析"""
+"""Sniper API 路由 - 支持 Agent/Workflow 任务执行"""
 
 from sanic import Blueprint, Request
 from sanic.response import json
@@ -8,188 +8,117 @@ import asyncio
 from api.schema.base import BaseResponse, ErrorCode
 from services.task_service import TaskService
 from utils.logger import logger
-from models.connectors import PlatformType
+
+# 导入所有 Agent 类
+from services.sniper.xhs_trend import XiaohongshuTrendAgent
+from services.sniper.xhs_creator import CreatorSniper
+from services.sniper.douyin_trend import DouyinDeepAgent
 
 sniper_bp = Blueprint("sniper", url_prefix="/sniper")
 
-# 平台 Agent 映射
-PLATFORM_AGENTS = {
-    PlatformType.XIAOHONGSHU: "services.sniper.xhs_trend.XiaohongshuDeepAgent",
-    PlatformType.DOUYIN: "services.sniper.douyin_trend.DouyinDeepAgent",
+# Agent/Workflow 映射表 - 直接存储类对象
+AGENT_WORKFLOW_MAPPING = {
+    # 小红书 Agent
+    "xhs_trend_agent": XiaohongshuTrendAgent,
+    "xhs_creator_sniper": CreatorSniper,
+
+    # 抖音 Agent
+    "douyin_trend_agent": DouyinDeepAgent,
+
+    # 可以继续添加更多 Agent 和 Workflow
+    # "custom_workflow": CustomWorkflow,
 }
 
 
-def _get_agent_class(platform: PlatformType):
-    """动态导入平台 Agent 类"""
-    if platform not in PLATFORM_AGENTS:
-        raise ValueError(f"不支持的平台: {platform}")
+@sniper_bp.post("/execute")
+async def execute_agent(request: Request):
+    """执行 Agent/Workflow 任务（统一入口）
 
-    module_path = PLATFORM_AGENTS[platform]
-    module_path_parts = module_path.split(".")
-    module_name = ".".join(module_path_parts[:-1])
-    class_name = module_path_parts[-1]
-
-    import importlib
-    module = importlib.import_module(module_name)
-    return getattr(module, class_name)
-
-
-@sniper_bp.post("/<platform:str>/trend")
-async def create_trend_task(request: Request, platform: str):
-    """创建趋势分析任务（支持多平台）
-
-    Args:
-        platform: 平台名称 (xiaohongshu, douyin)
+    Body:
+        agent_or_workflow: Agent/Workflow 唯一标识（如 "xhs_trend_agent"）
+        params: 传递给 Agent 的参数（如 {"keywords": ["美食", "旅游"]}）
     """
     try:
-        # 验证平台
-        try:
-            platform_type = PlatformType(platform)
-        except ValueError:
+        from models.task import Task
+
+        data = request.json
+        agent_id = data.get("agent_or_workflow")
+        params = data.get("params", {})
+
+        if not agent_id:
             return json(BaseResponse(
                 code=ErrorCode.INTERNAL_ERROR,
-                message=f"不支持的平台: {platform}，支持的平台: xiaohongshu, douyin",
+                message="agent_or_workflow 不能为空",
                 data=None
             ).model_dump(), status=400)
 
-        data = request.json
-        keywords = data.get("keywords", [])
-
-        if not keywords:
+        if agent_id not in AGENT_WORKFLOW_MAPPING:
             return json(BaseResponse(
                 code=ErrorCode.INTERNAL_ERROR,
-                message="keywords 不能为空",
+                message=f"不支持的 Agent/Workflow: {agent_id}",
                 data=None
             ).model_dump(), status=400)
 
         auth_info = request.ctx.auth_info
 
-        # 导入 Agent 类
-        agent_class = _get_agent_class(platform_type)
+        # 创建任务
+        task = await Task.create(
+            source=auth_info.source.value,
+            source_id=auth_info.source_id,
+            task_type=agent_id
+        )
+        await task.start()
 
-        # 创建 Agent 实例
+        # 获取 Agent 类
+        agent_class = AGENT_WORKFLOW_MAPPING[agent_id]
+
+        # 在后台执行 Agent
+        asyncio.create_task(_run_agent_task(agent_class, request, task, **params))
+
+        return json(BaseResponse(
+            code=ErrorCode.SUCCESS,
+            message="任务已创建",
+            data={
+                "task_id": str(task.id),
+                "agent_or_workflow": agent_id,
+                "message": f"{agent_id} 任务已在后台执行"
+            }
+        ).model_dump())
+
+    except Exception as e:
+        logger.error(f"执行 Agent 任务失败: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=str(e),
+            data=None
+        ).model_dump(), status=500)
+
+
+async def _run_agent_task(agent_class, request: Request, task, **kwargs):
+    """在后台运行 Agent 任务
+
+    Args:
+        agent_class: Agent 类对象
+        request: Sanic Request 对象
+        task: 任务对象
+        **kwargs: 传递给 Agent 的参数
+    """
+    try:
+        # 创建实例
+        auth_info = request.ctx.auth_info
         agent = agent_class(
             source_id=auth_info.source_id,
             source=auth_info.source.value,
             playwright=request.app.ctx.playwright,
-            keywords=keywords
+            **kwargs
         )
 
-        # 创建并启动任务
-        from models.task import Task
-        task = await Task.create(
-            source=auth_info.source.value,
-            source_id=auth_info.source_id,
-            task_type=f"trend_analysis_{platform}"
-        )
-        await task.start()
-
-        # 启动后台任务
-        asyncio.create_task(agent.analyze_trends(task=task))
-
-        return json(BaseResponse(
-            code=ErrorCode.SUCCESS,
-            message="任务已创建",
-            data={
-                "task_id": str(task.id),
-                "platform": platform,
-                "message": f"{platform} 趋势分析任务已在后台执行，关键词: {keywords}"
-            }
-        ).model_dump())
+        # 执行任务 - 所有 Agent/Workflow 统一使用 execute 方法
+        await agent.execute(task=task)
 
     except Exception as e:
-        logger.error(f"创建趋势分析任务失败: {e}")
-        return json(BaseResponse(
-            code=ErrorCode.INTERNAL_ERROR,
-            message=str(e),
-            data=None
-        ).model_dump(), status=500)
-
-
-@sniper_bp.post("/<platform:str>/harvest")
-async def create_harvest_task(request: Request, platform: str):
-    """创建创作者监控任务（支持多平台）
-
-    Args:
-        platform: 平台名称 (xiaohongshu, douyin)
-    """
-    try:
-        # 验证平台
-        try:
-            platform_type = PlatformType(platform)
-        except ValueError:
-            return json(BaseResponse(
-                code=ErrorCode.INTERNAL_ERROR,
-                message=f"不支持的平台: {platform}，支持的平台: xiaohongshu, douyin",
-                data=None
-            ).model_dump(), status=400)
-
-        data = request.json
-        creator_ids = data.get("creator_ids", [])
-
-        if not creator_ids:
-            return json(BaseResponse(
-                code=ErrorCode.INTERNAL_ERROR,
-                message="creator_ids 不能为空",
-                data=None
-            ).model_dump(), status=400)
-
-        auth_info = request.ctx.auth_info
-
-        # 导入对应的 Sniper 类
-        if platform_type == PlatformType.XIAOHONGSHU:
-            from services.sniper.xhs_creator import CreatorSniper
-            sniper_class = CreatorSniper
-        elif platform_type == PlatformType.DOUYIN:
-            # TODO: 创建 douyin_creator.py
-            return json(BaseResponse(
-                code=ErrorCode.INTERNAL_ERROR,
-                message=f"{platform} 创作者监控功能开发中",
-                data=None
-            ).model_dump(), status=501)
-        else:
-            return json(BaseResponse(
-                code=ErrorCode.INTERNAL_ERROR,
-                message=f"平台 {platform} 暂不支持创作者监控",
-                data=None
-            ).model_dump(), status=400)
-
-        # 创建 Sniper 实例
-        sniper = sniper_class(
-            source_id=auth_info.source_id,
-            source=auth_info.source.value,
-            playwright=request.app.ctx.playwright
-        )
-
-        # 创建并启动任务
-        from models.task import Task
-        task = await Task.create(
-            source=auth_info.source.value,
-            source_id=auth_info.source_id,
-            task_type=f"creator_monitor_{platform}"
-        )
-        await task.start()
-
-        # 启动后台任务
-        asyncio.create_task(sniper.monitor_creators(creator_ids, task=task))
-
-        return json(BaseResponse(
-            code=ErrorCode.SUCCESS,
-            message="任务已创建",
-            data={
-                "task_id": str(task.id),
-                "platform": platform,
-                "message": f"{platform} 创作者监控任务已在后台执行，监控 {len(creator_ids)} 个创作者"
-            }
-        ).model_dump())
-
-    except Exception as e:
-        logger.error(f"创建创作者监控任务失败: {e}")
-        return json(BaseResponse(
-            code=ErrorCode.INTERNAL_ERROR,
-            message=str(e),
-            data=None
-        ).model_dump(), status=500)
+        logger.error(f"Agent {agent_class.__name__} 执行失败: {e}")
+        await task.fail(str(e), 0)
 
 
 @sniper_bp.get("/task/<task_id:str>")
@@ -251,26 +180,86 @@ async def list_tasks(request: Request):
     ).model_dump())
 
 
-@sniper_bp.get("/platforms")
-async def get_platforms(request: Request):
-    """获取支持的平台列表"""
-    platforms = [
+@sniper_bp.get("/agents")
+async def list_agents(request: Request):
+    """获取所有可用的 Agent 和 Workflow"""
+    agents = [
         {
-            "name": "xiaohongshu",
-            "display_name": "小红书",
-            "features": ["trend_analysis", "creator_monitor"],
-            "description": "小红书平台爆款分析和创作者监控"
+            "id": "xhs_trend_agent",
+            "display_name": "小红书趋势追踪",
+            "description": "小红书平台爆款趋势追踪与分析",
+            "platform": "xiaohongshu",
+            "icon": "fas fa-chart-line",
+            "tags": ["Trend", "Analysis"],
+            "params": {
+                "keywords": {
+                    "type": "list[str]",
+                    "required": True,
+                    "description": "分析关键词列表",
+                    "placeholder": "每行一个关键词\n杭州旅游\nPython教程\nAI工具"
+                }
+            }
         },
         {
-            "name": "douyin",
-            "display_name": "抖音",
-            "features": ["trend_analysis"],
-            "description": "抖音平台爆款分析"
+            "id": "xhs_creator_sniper",
+            "display_name": "小红书创作者监控",
+            "description": "监控小红书指定创作者的最新内容动态",
+            "platform": "xiaohongshu",
+            "icon": "fas fa-user-astronaut",
+            "tags": ["Monitor", "Creator"],
+            "params": {
+                "creator_ids": {
+                    "type": "list[str]",
+                    "required": True,
+                    "description": "创作者ID列表",
+                    "placeholder": "每行一个创作者ID\n5c4c5848000000001200de55\n657f31eb000000003d036737"
+                },
+                "days": {
+                    "type": "int",
+                    "required": False,
+                    "description": "监控天数",
+                    "default": 7,
+                    "min": 1,
+                    "max": 30
+                }
+            }
+        },
+        {
+            "id": "douyin_trend_agent",
+            "display_name": "抖音趋势追踪",
+            "description": "抖音平台爆款趋势追踪与分析",
+            "platform": "douyin",
+            "icon": "fas fa-chart-line",
+            "tags": ["Trend", "Analysis"],
+            "params": {
+                "keywords": {
+                    "type": "list[str]",
+                    "required": True,
+                    "description": "分析关键词列表",
+                    "placeholder": "每行一个关键词\nagent interview\nPython tutorial\nAI tools"
+                }
+            }
+        },
+        {
+            "id": "douyin_creator_sniper",
+            "display_name": "抖音创作者监控",
+            "description": "监控抖音指定创作者的最新内容动态",
+            "platform": "douyin",
+            "icon": "fas fa-user-astronaut",
+            "tags": ["Monitor", "Creator"],
+            "params": {
+                "creator_ids": {
+                    "type": "list[str]",
+                    "required": True,
+                    "description": "创作者ID列表",
+                    "placeholder": "每行一个创作者ID"
+                }
+            }
         }
     ]
 
     return json(BaseResponse(
         code=ErrorCode.SUCCESS,
         message="获取成功",
-        data={"platforms": platforms}
+        data={"agents": agents, "total": len(agents)}
     ).model_dump())

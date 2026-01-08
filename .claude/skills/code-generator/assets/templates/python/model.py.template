@@ -1,0 +1,20 @@
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from models.base import Base
+
+class {{Model}}(Base):
+    """{{Model}} model."""
+
+    __tablename__ = "{{table_name}}"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    {{#each fields}}
+    {{name}} = Column({{type}}, {{#if nullable}}nullable={{else}}nullable=False{{/if}}{{#if default}}, default={{default}}{{/if}})
+    {{/each}}
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<{{Model}}(id={self.id}, name='{self.name}')>"

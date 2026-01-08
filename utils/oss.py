@@ -5,6 +5,7 @@ from config.settings import settings
 from alibabacloud_oss_v2 import models, Credentials, Config
 from alibabacloud_oss_v2.aio import AsyncClient
 from alibabacloud_oss_v2.types import CredentialsProvider
+import base64
 
 
 class OSSAsyncClient:
@@ -72,12 +73,24 @@ class OSSAsyncClient:
             上传是否成功
         """
         try:
+            body = None
             # 处理不同类型的输入
             if isinstance(file_data, str):
-                # 如果是文件路径，读取文件
-                with open(file_data, 'rb') as f:
-                    content = f.read()
-                body = content
+                if file_data.startswith("data:image/"):
+                    # Extract the base64 data from data URL
+                    _, encoded = file_data.split(",", 1)
+                    # Fix padding: base64 strings must have length multiple of 4
+                    missing_padding = len(encoded) % 4
+                    if missing_padding:
+                        encoded += '=' * (4 - missing_padding)
+                    body = base64.b64decode(encoded)
+                else:
+                    # Assume it's raw base64
+                    # Fix padding: base64 strings must have length multiple of 4
+                    missing_padding = len(file_data) % 4
+                    if missing_padding:
+                        file_data += '=' * (4 - missing_padding)
+                    body = base64.b64decode(file_data)
             elif isinstance(file_data, bytes):
                 body = file_data
             else:

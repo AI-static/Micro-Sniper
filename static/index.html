@@ -3,10 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Micro-Sniper Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <title>Micro-Sniper | Multi-Platform Agent Hub</title>
+
+    <!-- Fonts: Manrope (body), Chakra Petch (headings), JetBrains Mono (code/console) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
     <style>
+        /* ========== CSS VARIABLES ========== */
+        :root {
+            /* Colors - Dark Slate Theme */
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-tertiary: #1f2937;
+            --bg-elevated: #1f2937;
+            --bg-hover: #374151;
+
+            /* Text */
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+
+            /* Accents - Electric Cyan */
+            --accent-primary: #06b6d4;
+            --accent-hover: #0891b2;
+            --accent-glow: rgba(6, 182, 212, 0.15);
+            --accent-strong: rgba(6, 182, 212, 0.3);
+
+            /* Semantic */
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --info: #3b82f6;
+
+            /* Borders */
+            --border-primary: #374151;
+            --border-secondary: #4b5563;
+            --border-accent: #06b6d4;
+
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.4);
+            --shadow-glow: 0 0 20px rgba(6, 182, 212, 0.3);
+
+            /* Spacing */
+            --space-xs: 0.25rem;
+            --space-sm: 0.5rem;
+            --space-md: 1rem;
+            --space-lg: 1.5rem;
+            --space-xl: 2rem;
+            --space-2xl: 3rem;
+
+            /* Transitions */
+            --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ========== RESET & BASE ========== */
         * {
             margin: 0;
             padding: 0;
@@ -14,754 +73,2143 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #f8fafc;
-            color: #1e293b;
+            font-family: 'Manrope', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow: hidden;
         }
 
-        /* Login Screen */
-        #loginScreen {
-            min-height: 100vh;
+        /* ========== LAYOUT ========== */
+        .app-container {
+            display: grid;
+            grid-template-columns: 80px 1fr 400px;
+            grid-template-rows: 60px 1fr;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .app-header {
+            grid-column: 1 / -1;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 var(--space-xl);
+            box-shadow: var(--shadow-md);
+            z-index: 10;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            font-family: 'Chakra Petch', sans-serif;
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: var(--accent-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .logo i {
+            font-size: 1.75rem;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: var(--space-lg);
+        }
+
+        .api-status {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-primary);
+        }
+
+        .api-status.authenticated {
+            color: var(--success);
+            border-color: var(--success);
+        }
+
+        .api-status i {
+            font-size: 0.75rem;
+        }
+
+        .logout-btn {
+            background: transparent;
+            border: 1px solid var(--border-secondary);
+            color: var(--text-secondary);
+            padding: var(--space-sm) var(--space-md);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: var(--transition-fast);
+        }
+
+        .logout-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+
+        /* ========== LEFT SIDEBAR (CHANNELS) ========== */
+        .channels-sidebar {
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-primary);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: var(--space-lg) 0;
+            gap: var(--space-sm);
+        }
+
+        .sidebar-divider {
+            width: 40px;
+            height: 1px;
+            background: var(--border-primary);
+            margin: var(--space-sm) 0;
+        }
+
+        .channel-item {
+            width: 56px;
+            height: 56px;
             display: flex;
             align-items: center;
             justify-content: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px;
-        }
-
-        .login-card {
-            background: white;
-            border-radius: 16px;
-            padding: 40px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 400px;
-            width: 100%;
-        }
-
-        .login-logo {
-            font-size: 48px;
-            margin-bottom: 20px;
-        }
-
-        /* Navigation */
-        .navbar {
-            background: white;
-            border-bottom: 1px solid #e2e8f0;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-
-        .navbar-brand {
-            font-weight: 700;
-            font-size: 1.5rem;
-            color: #667eea !important;
-        }
-
-        .nav-link {
-            color: #64748b !important;
-            font-weight: 500;
-            padding: 0.5rem 1rem !important;
-            margin: 0 0.25rem;
-            border-radius: 8px;
-            transition: all 0.2s;
-        }
-
-        .nav-link:hover {
-            background: #f1f5f9;
-            color: #667eea !important;
-        }
-
-        .nav-link.active {
-            background: #667eea !important;
-            color: white !important;
-        }
-
-        /* Cards */
-        .card {
-            border: 1px solid #e2e8f0;
             border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-            margin-bottom: 24px;
-            background: white;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            cursor: pointer;
+            transition: var(--transition-base);
+            position: relative;
         }
 
-        .card-header {
-            background: white;
-            border-bottom: 1px solid #e2e8f0;
-            padding: 20px 24px;
-            font-weight: 600;
-            font-size: 1.1rem;
-        }
-
-        .card-body {
-            padding: 24px;
-        }
-
-        /* Buttons */
-        .btn-primary {
-            background: #667eea;
-            border-color: #667eea;
-            border-radius: 8px;
-            padding: 10px 24px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-
-        .btn-primary:hover {
-            background: #5568d3;
-            border-color: #5568d3;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-outline-primary {
-            color: #667eea;
-            border-color: #667eea;
-            border-radius: 8px;
-            font-weight: 500;
-        }
-
-        .btn-outline-primary:hover {
-            background: #667eea;
-            border-color: #667eea;
-        }
-
-        /* Forms */
-        .form-label {
-            font-weight: 500;
-            color: #475569;
-            margin-bottom: 8px;
-        }
-
-        .form-control, .form-select {
-            border-radius: 8px;
-            border: 1px solid #e2e8f0;
-            padding: 10px 16px;
-            transition: all 0.2s;
-        }
-
-        .form-control:focus, .form-select:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        /* Task Cards */
-        .task-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 16px;
-            background: white;
-            transition: all 0.2s;
-        }
-
-        .task-card:hover {
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        .channel-item:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-secondary);
             transform: translateY(-2px);
         }
 
-        .task-status {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 500;
+        .channel-item.active {
+            background: var(--accent-glow);
+            border-color: var(--accent-primary);
+            box-shadow: var(--shadow-glow);
         }
 
-        .task-pending {
-            background: #fef3c7;
-            color: #92400e;
+        .channel-item i {
+            font-size: 1.5rem;
+            color: var(--text-secondary);
+            transition: var(--transition-base);
         }
 
-        .task-running {
-            background: #dbeafe;
-            color: #1e40af;
+        .channel-item:hover i,
+        .channel-item.active i {
+            color: var(--accent-primary);
         }
 
-        .task-completed {
-            background: #d1fae5;
-            color: #065f46;
-        }
-
-        .task-failed {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-
-        /* Progress Bar */
-        .progress {
-            height: 8px;
-            border-radius: 4px;
-            background: #e2e8f0;
-        }
-
-        .progress-bar {
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        }
-
-        /* Platform Cards */
-        .platform-card {
-            border: 1px solid #e2e8f0;
-            border-radius: 12px;
-            padding: 24px;
-            text-align: center;
-            background: white;
-            transition: all 0.2s;
-        }
-
-        .platform-card:hover {
-            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
-            transform: translateY(-4px);
-        }
-
-        .platform-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-        }
-
-        .platform-name {
-            font-weight: 600;
-            font-size: 1.2rem;
-            margin-bottom: 8px;
-        }
-
-        .platform-desc {
-            color: #64748b;
-            font-size: 0.9rem;
-        }
-
-        .feature-badge {
-            display: inline-block;
-            padding: 4px 10px;
+        .channel-tooltip {
+            position: absolute;
+            left: 70px;
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            padding: var(--space-sm) var(--space-md);
             border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            margin: 4px 2px;
+            font-size: 0.875rem;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition-fast);
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border-primary);
+            z-index: 100;
         }
 
-        .feature-enabled {
-            background: #d1fae5;
-            color: #065f46;
+        .channel-item:hover .channel-tooltip {
+            opacity: 1;
         }
 
-        .feature-disabled {
-            background: #f1f5f9;
-            color: #94a3b8;
-        }
-
-        /* Loading Spinner */
-        .spinner-border-sm {
-            width: 1rem;
-            height: 1rem;
-            border-width: 0.15em;
-        }
-
-        /* Results Display */
-        .result-item {
-            padding: 16px;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            background: #fafafa;
-        }
-
-        .result-title {
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .result-meta {
-            font-size: 0.85rem;
-            color: #64748b;
-        }
-
-        /* Utility */
-        .hidden {
-            display: none !important;
-        }
-
-        pre {
-            background: #1e293b;
-            color: #e2e8f0;
-            padding: 16px;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            max-height: 400px;
+        /* ========== MIDDLE AREA (AGENT GRID) ========== */
+        .agents-area {
+            background: var(--bg-primary);
+            padding: var(--space-xl);
             overflow-y: auto;
         }
 
         .section-title {
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 600;
+            margin-bottom: var(--space-lg);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+        }
+
+        .section-title i {
+            color: var(--accent-primary);
+        }
+
+        .agents-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: var(--space-lg);
+        }
+
+        .agent-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: var(--space-lg);
+            cursor: pointer;
+            transition: var(--transition-base);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .agent-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--accent-primary);
+            transform: scaleX(0);
+            transition: var(--transition-base);
+        }
+
+        .agent-card:hover {
+            border-color: var(--accent-primary);
+            box-shadow: var(--shadow-lg), var(--shadow-glow);
+            transform: translateY(-4px);
+        }
+
+        .agent-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .agent-card.selected {
+            border-color: var(--accent-primary);
+            box-shadow: var(--shadow-glow);
+            background: var(--accent-glow);
+        }
+
+        .agent-card.selected::before {
+            transform: scaleX(1);
+        }
+
+        .agent-header {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--space-md);
+            margin-bottom: var(--space-md);
+        }
+
+        .agent-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--bg-tertiary);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .agent-icon i {
             font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 24px;
-            color: #1e293b;
+            color: var(--accent-primary);
         }
 
-        .badge-api-key {
-            background: #f1f5f9;
-            color: #64748b;
-            padding: 6px 12px;
+        .agent-title {
+            flex: 1;
+        }
+
+        .agent-name {
+            font-family: 'Chakra Petch', sans-serif;
+            font-weight: 600;
+            font-size: 1.125rem;
+            margin-bottom: var(--space-xs);
+            color: var(--text-primary);
+        }
+
+        .agent-description {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .agent-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--space-sm);
+            margin-top: var(--space-md);
+        }
+
+        .agent-tag {
+            padding: var(--space-xs) var(--space-sm);
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: var(--space-2xl);
+            color: var(--text-muted);
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: var(--space-lg);
+            opacity: 0.3;
+        }
+
+        /* ========== TASK LIST VIEW ========== */
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-md);
+        }
+
+        .task-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: var(--space-lg);
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+
+        .task-item:hover {
+            border-color: var(--accent-primary);
+            box-shadow: var(--shadow-md);
+            transform: translateX(4px);
+        }
+
+        .task-item.selected {
+            border-color: var(--accent-primary);
+            background: var(--accent-glow);
+        }
+
+        .task-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-sm);
+        }
+
+        .task-agent-name {
+            font-family: 'Chakra Petch', sans-serif;
+            font-weight: 600;
+            font-size: 1rem;
+            color: var(--text-primary);
+        }
+
+        .task-status {
+            padding: var(--space-xs) var(--space-sm);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .task-status.completed {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .task-status.running {
+            background: rgba(6, 182, 212, 0.2);
+            color: var(--accent-primary);
+        }
+
+        .task-status.failed {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--error);
+        }
+
+        .task-meta {
+            display: flex;
+            gap: var(--space-lg);
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: var(--space-sm);
+        }
+
+        .task-meta-item {
+            display: flex;
+            align-items: center;
+            gap: var(--space-xs);
+        }
+
+        .task-meta-item i {
+            color: var(--accent-primary);
+            font-size: 0.75rem;
+        }
+
+        .task-params-preview {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-tertiary);
+            padding: var(--space-sm);
             border-radius: 6px;
-            font-family: monospace;
-            font-size: 0.9rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
-        /* Toast */
-        .toast {
-            background: white;
+        .task-logs-panel {
+            margin-top: var(--space-md);
+            padding-top: var(--space-md);
+            border-top: 1px solid var(--border-primary);
+        }
+
+        .task-logs-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: var(--space-sm);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .task-logs-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--bg-primary);
             border-radius: 8px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            padding: var(--space-md);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8125rem;
+        }
+
+        /* ========== PLATFORM LOGIN MODULE ========== */
+        .platform-login-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: var(--space-lg);
+            margin-top: var(--space-lg);
+        }
+
+        .platform-login-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            padding: var(--space-lg);
+            transition: var(--transition-base);
+        }
+
+        .platform-login-card:hover {
+            border-color: var(--border-secondary);
+        }
+
+        .platform-login-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-md);
+            padding-bottom: var(--space-md);
+            border-bottom: 1px solid var(--border-primary);
+        }
+
+        .platform-login-title {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .platform-login-title i {
+            font-size: 1.5rem;
+            color: var(--accent-primary);
+        }
+
+        .login-status-badge {
+            padding: var(--space-xs) var(--space-sm);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .login-status-badge.not_logged_in {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--error);
+        }
+
+        .login-status-badge.logged_in {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+        }
+
+        .login-methods {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-md);
+        }
+
+        .login-method-tabs {
+            display: flex;
+            gap: var(--space-sm);
+            margin-bottom: var(--space-md);
+        }
+
+        .login-method-tab {
+            flex: 1;
+            padding: var(--space-sm);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: var(--transition-fast);
+            text-align: center;
+        }
+
+        .login-method-tab:hover {
+            background: var(--bg-hover);
+        }
+
+        .login-method-tab.active {
+            background: var(--accent-glow);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+        }
+
+        .qrcode-login-container {
+            text-align: center;
+        }
+
+        .qrcode-image {
+            width: 200px;
+            height: 200px;
+            margin: var(--space-md) auto;
+            background: var(--bg-primary);
+            border: 2px solid var(--border-primary);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .qrcode-image img {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 6px;
+        }
+
+        .qrcode-image .placeholder {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        .resource-url-link {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-sm);
+            padding: var(--space-sm) var(--space-md);
+            background: var(--accent-glow);
+            border: 1px solid var(--accent-primary);
+            border-radius: 6px;
+            color: var(--accent-primary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            margin-bottom: var(--space-md);
+            transition: var(--transition-fast);
+        }
+
+        .resource-url-link:hover {
+            background: var(--accent-strong);
+        }
+
+        .confirm-login-btn {
+            width: 100%;
+            padding: var(--space-md);
+            background: var(--success);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9375rem;
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+
+        .confirm-login-btn:hover {
+            opacity: 0.9;
+            transform: translateY(-2px);
+        }
+
+        .confirm-login-btn:disabled {
+            background: var(--border-secondary);
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .cookie-login-container {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-md);
+        }
+
+        .cookie-textarea {
+            width: 100%;
+            min-height: 120px;
+            padding: var(--space-md);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8125rem;
+            resize: vertical;
+        }
+
+        .cookie-textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .cookie-login-btn {
+            width: 100%;
+            padding: var(--space-md);
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9375rem;
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+
+        .cookie-login-btn:hover {
+            background: var(--accent-hover);
+        }
+
+        .cookie-login-btn:disabled {
+            background: var(--border-secondary);
+            cursor: not-allowed;
+        }
+
+        .view-mode-indicator {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            padding: var(--space-sm) var(--space-md);
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .view-mode-indicator i {
+            color: var(--accent-primary);
+        }
+
+        /* ========== RIGHT PANEL (EXECUTION CONFIG) ========== */
+
+        /* ========== RIGHT PANEL (EXECUTION CONFIG) ========== */
+        .config-panel {
+            background: var(--bg-secondary);
+            border-left: 1px solid var(--border-primary);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-placeholder {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            padding: var(--space-xl);
+            text-align: center;
+        }
+
+        .panel-placeholder i {
+            font-size: 4rem;
+            margin-bottom: var(--space-lg);
+            opacity: 0.3;
+        }
+
+        .panel-content {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .panel-header {
+            padding: var(--space-lg);
+            border-bottom: 1px solid var(--border-primary);
+            background: var(--bg-tertiary);
+        }
+
+        .panel-title {
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: var(--space-sm);
+            color: var(--text-primary);
+        }
+
+        .panel-subtitle {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-lg);
+        }
+
+        /* Dynamic Form */
+        .dynamic-form {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-lg);
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-sm);
+        }
+
+        .form-label {
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .form-label i {
+            color: var(--accent-primary);
+            font-size: 0.75rem;
+        }
+
+        .form-input,
+        .form-select,
+        .form-textarea {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            padding: var(--space-md);
+            color: var(--text-primary);
+            font-family: 'Manrope', sans-serif;
+            font-size: 0.9375rem;
+            transition: var(--transition-fast);
+        }
+
+        .form-input:focus,
+        .form-select:focus,
+        .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .form-input:disabled,
+        .form-select:disabled,
+        .form-textarea:disabled {
+            background: var(--bg-primary);
+            border-color: var(--border-primary);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .form-input::placeholder,
+        .form-textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        .form-textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .form-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Run Button */
+        .run-button {
+            width: 100%;
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+            border: none;
+            padding: var(--space-md);
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: var(--transition-base);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-sm);
+            margin-top: var(--space-lg);
+        }
+
+        .run-button:hover {
+            background: var(--accent-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .run-button:active {
+            transform: translateY(0);
+        }
+
+        .run-button:disabled {
+            background: var(--border-secondary);
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .run-button i {
+            font-size: 1rem;
+        }
+
+        .run-button .spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Console */
+        .console-section {
+            border-top: 1px solid var(--border-primary);
+            background: var(--bg-primary);
+            display: flex;
+            flex-direction: column;
+            height: 300px;
+        }
+
+        .console-header {
+            padding: var(--space-md) var(--space-lg);
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .console-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .console-title i {
+            color: var(--accent-primary);
+        }
+
+        .console-clear {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: var(--transition-fast);
+        }
+
+        .console-clear:hover {
+            color: var(--text-secondary);
+        }
+
+        .console-output {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-md);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8125rem;
+            line-height: 1.6;
+        }
+
+        .console-line {
+            margin-bottom: var(--space-xs);
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-4px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .console-line.info {
+            color: var(--text-secondary);
+        }
+
+        .console-line.success {
+            color: var(--success);
+        }
+
+        .console-line.error {
+            color: var(--error);
+        }
+
+        .console-line.warning {
+            color: var(--warning);
+        }
+
+        .console-line .timestamp {
+            color: var(--text-muted);
+            margin-right: var(--space-sm);
+        }
+
+        /* ========== CONSOLE LOGIN BUTTONS ========== */
+        .console-login-card {
+            margin: 12px 0;
+            padding: 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+        }
+
+        .login-card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            font-weight: 600;
+            color: var(--accent-primary);
+        }
+
+        .login-card-body p {
+            margin: 8px 0;
+            color: var(--text-secondary);
+        }
+
+        .login-card-body ol {
+            margin: 12px 0;
+            padding-left: 20px;
+            color: var(--text-secondary);
+        }
+
+        .login-card-body ol li {
+            margin: 6px 0;
+        }
+
+        .login-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .console-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-primary);
+            border-radius: 6px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.875rem;
+            cursor: pointer;
+            transition: var(--transition-base);
+            font-family: 'Manrope', sans-serif;
+        }
+
+        .console-btn:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent-primary);
+            transform: translateY(-2px);
+        }
+
+        .console-btn-primary {
+            background: var(--accent-glow);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+            font-weight: 600;
+        }
+
+        .console-btn-primary:hover {
+            background: var(--accent-strong);
+            color: var(--bg-primary);
+        }
+
+        .console-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .console-login-prompt {
+            margin-top: 8px;
+            padding: 12px;
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--accent-primary);
+            border-radius: 6px;
+        }
+
+        /* ========== LOGIN SCREEN ========== */
+
+        /* ========== LOGIN SCREEN ========== */
+        .login-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .login-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 16px;
+            padding: var(--space-2xl);
+            width: 100%;
+            max-width: 420px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .login-logo {
+            text-align: center;
+            margin-bottom: var(--space-xl);
+        }
+
+        .login-logo i {
+            font-size: 4rem;
+            color: var(--accent-primary);
+            margin-bottom: var(--space-md);
+        }
+
+        .login-title {
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 2rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: var(--space-sm);
+            color: var(--text-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .login-subtitle {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: var(--space-xl);
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-lg);
+        }
+
+        .login-input {
+            width: 100%;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            padding: var(--space-md);
+            color: var(--text-primary);
+            font-size: 1rem;
+            transition: var(--transition-fast);
+        }
+
+        .login-input:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .login-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .login-button {
+            width: 100%;
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+            border: none;
+            padding: var(--space-md);
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: var(--transition-base);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-sm);
+        }
+
+        .login-button:hover {
+            background: var(--accent-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .login-button .spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        .login-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+            padding: var(--space-md);
+            border-radius: 8px;
+            font-size: 0.875rem;
+            text-align: center;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* ========== SCROLLBAR ========== */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-primary);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--border-secondary);
+        }
+
+        /* ========== RESPONSIVE ========== */
+        @media (max-width: 1200px) {
+            .app-container {
+                grid-template-columns: 80px 1fr;
+            }
+
+            .config-panel {
+                position: fixed;
+                right: 0;
+                top: 0;
+                bottom: 0;
+                width: 400px;
+                transform: translateX(100%);
+                transition: var(--transition-base);
+                z-index: 100;
+                box-shadow: var(--shadow-lg);
+            }
+
+            .config-panel.open {
+                transform: translateX(0);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .app-container {
+                grid-template-columns: 1fr;
+            }
+
+            .channels-sidebar {
+                display: none;
+            }
         }
     </style>
 </head>
 <body>
     <!-- Login Screen -->
-    <div id="loginScreen">
+    <div id="loginScreen" class="login-screen">
         <div class="login-card">
-            <div class="text-center login-logo">🎯</div>
-            <h2 class="text-center mb-2" style="font-weight: 700; color: #1e293b;">Micro-Sniper</h2>
-            <p class="text-center text-muted mb-4">Multi-Platform Content Extraction System</p>
-            <div class="mb-3">
-                <label class="form-label" for="apiKeyInput">API Key</label>
-                <input type="password" class="form-control" id="apiKeyInput"
-                    placeholder="Enter your API key to continue">
+            <div class="login-logo">
+                <i class="fas fa-crosshairs"></i>
             </div>
-            <button class="btn btn-primary w-100" onclick="login()">
-                <span class="spinner-border spinner-border-sm me-2 loading d-none" role="status"></span>
-                <span>Access Dashboard</span>
-            </button>
-            <div id="loginError" class="alert alert-danger mt-3 hidden"></div>
-        </div>
-    </div>
+            <h1 class="login-title">Micro-Sniper</h1>
+            <p class="login-subtitle">Multi-Platform Agent Hub</p>
 
-    <!-- Main Dashboard -->
-    <div id="mainApp" class="hidden">
-        <!-- Navbar -->
-        <nav class="navbar navbar-expand-lg sticky-top">
-            <div class="container-fluid">
-                <a class="navbar-brand" href="#">
-                    <i class="bi bi-crosshair"></i> Micro-Sniper
-                </a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                    <span class="navbar-toggler-icon"></span>
+            <form class="login-form" onsubmit="handleLogin(event)">
+                <input
+                    type="password"
+                    class="login-input"
+                    id="apiKeyInput"
+                    placeholder="Enter your API key"
+                    required
+                >
+                <button type="submit" class="login-button" id="loginButton">
+                    <i class="fas fa-key"></i>
+                    <span>Access Dashboard</span>
                 </button>
-                <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav me-auto">
-                        <li class="nav-item">
-                            <a class="nav-link active" href="#" onclick="showSection('tasks')">
-                                <i class="bi bi-list-task"></i> Tasks
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#" onclick="showSection('connectors')">
-                                <i class="bi bi-plug"></i> Connectors
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#" onclick="showSection('platforms')">
-                                <i class="bi bi-globe"></i> Platforms
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#" onclick="showSection('auth')">
-                                <i class="bi bi-shield-lock"></i> Login
-                            </a>
-                        </li>
-                    </ul>
-                    <div class="d-flex align-items-center">
-                        <span class="badge-api-key me-3">
-                            <i class="bi bi-key-fill"></i>
-                            <span id="apiKeyDisplay">••••••••</span>
+            </form>
+
+            <div id="loginError" class="login-error hidden"></div>
+        </div>
+    </div>
+
+    <!-- Main App Container -->
+    <div id="mainApp" class="app-container hidden">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo">
+                <i class="fas fa-crosshairs"></i>
+                <span>Micro-Sniper</span>
+            </div>
+            <div class="header-right">
+                <div class="api-status" id="apiStatus">
+                    <i class="fas fa-circle"></i>
+                    <span id="apiKeyDisplay">Not authenticated</span>
+                </div>
+                <button class="logout-btn" onclick="handleLogout()">
+                    <i class="fas fa-sign-out-alt"></i>
+                    Logout
+                </button>
+            </div>
+        </header>
+
+        <!-- Channels Sidebar -->
+        <aside class="channels-sidebar" id="channelsList">
+            <!-- Channels will be rendered here -->
+        </aside>
+
+        <!-- Agents Area -->
+        <main class="agents-area" id="mainArea">
+            <!-- Agent View -->
+            <div id="agentView">
+                <div class="section-title">
+                    <i class="fas fa-robot"></i>
+                    <span id="currentChannelTitle">All Agents</span>
+                </div>
+                <div class="agents-grid" id="agentsGrid">
+                    <!-- Agents will be rendered here -->
+                </div>
+            </div>
+
+            <!-- Platform Login View (Hidden by default) -->
+            <div id="loginView" class="hidden">
+                <div class="section-title">
+                    <i class="fas fa-sign-in-alt"></i>
+                    <span>平台登录管理</span>
+                </div>
+
+                <div class="platform-login-grid" id="platformLoginGrid">
+                    <!-- Platform login cards will be rendered here -->
+                </div>
+            </div>
+        </main>
+
+        <!-- Config Panel -->
+        <aside class="config-panel" id="configPanel">
+            <div class="panel-placeholder" id="panelPlaceholder">
+                <i class="fas fa-mouse-pointer"></i>
+                <p>Select an agent to configure</p>
+            </div>
+            <div class="panel-content hidden" id="panelContent">
+                <div class="panel-header">
+                    <h3 class="panel-title" id="panelAgentName">Agent Name</h3>
+                    <p class="panel-subtitle" id="panelAgentDesc">Agent description</p>
+                </div>
+                <div class="panel-body">
+                    <form class="dynamic-form" id="dynamicForm" onsubmit="handleRunTask(event)">
+                        <!-- Form fields will be rendered here -->
+                    </form>
+                </div>
+                <div class="console-section">
+                    <div class="console-header">
+                        <span class="console-title">
+                            <i class="fas fa-terminal"></i>
+                            Console
                         </span>
-                        <button class="btn btn-outline-primary btn-sm" onclick="logout()">
-                            <i class="bi bi-box-arrow-right"></i> Logout
+                        <button class="console-clear" onclick="clearConsole()">
+                            <i class="fas fa-trash"></i>
+                            Clear
                         </button>
+                    </div>
+                    <div class="console-output" id="consoleOutput">
+                        <!-- Console logs will appear here -->
                     </div>
                 </div>
             </div>
-        </nav>
-
-        <div class="container py-4">
-            <!-- Tasks Section -->
-            <div id="tasksSection">
-                <h2 class="section-title">Task Management</h2>
-
-                <!-- Create Task Tabs -->
-                <ul class="nav nav-tabs mb-4" role="tablist">
-                    <li class="nav-item">
-                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#createTask">
-                            <i class="bi bi-plus-circle"></i> Create Task
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#taskList">
-                            <i class="bi bi-list-ul"></i> Task List
-                        </button>
-                    </li>
-                </ul>
-
-                <div class="tab-content">
-                    <!-- Create Task -->
-                    <div class="tab-pane fade show active" id="createTask">
-                        <div class="row">
-                            <div class="col-lg-6">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <i class="bi bi-person-badge"></i> Creator Monitor
-                                    </div>
-                                    <div class="card-body">
-                                        <form onsubmit="createCreatorTask(event)">
-                                            <div class="mb-3">
-                                                <label class="form-label">Platform</label>
-                                                <select class="form-select" id="creatorPlatform" required>
-                                                    <option value="">Select platform...</option>
-                                                    <option value="xiaohongshu">小红书</option>
-                                                    <option value="douyin">抖音</option>
-                                                </select>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label class="form-label">Creator IDs (one per line)</label>
-                                                <textarea class="form-control" id="creatorIds" rows="4"
-                                                    placeholder="5c4c5848000000001200de55&#10;657f31eb000000003d036737" required></textarea>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label class="form-label">Monitor Days</label>
-                                                <input type="number" class="form-control" id="monitorDays" value="7" min="1" max="30">
-                                            </div>
-                                            <button type="submit" class="btn btn-primary">
-                                                <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
-                                                Create Monitor Task
-                                            </button>
-                                        </form>
-                                        <div id="creatorTaskResult" class="mt-3"></div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-lg-6">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <i class="bi bi-graph-up"></i> Trend Analysis
-                                    </div>
-                                    <div class="card-body">
-                                        <form onsubmit="createTrendTask(event)">
-                                            <div class="mb-3">
-                                                <label class="form-label">Platform</label>
-                                                <select class="form-select" id="trendPlatform" required>
-                                                    <option value="">Select platform...</option>
-                                                    <option value="xiaohongshu">小红书</option>
-                                                    <option value="douyin">抖音</option>
-                                                </select>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label class="form-label">Keywords (one per line)</label>
-                                                <textarea class="form-control" id="trendKeywords" rows="4"
-                                                    placeholder="agent interview&#10;Python tutorial" required></textarea>
-                                            </div>
-                                            <button type="submit" class="btn btn-primary">
-                                                <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
-                                                Create Analysis Task
-                                            </button>
-                                        </form>
-                                        <div id="trendTaskResult" class="mt-3"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Task List -->
-                    <div class="tab-pane fade" id="taskList">
-                        <div class="card">
-                            <div class="card-header d-flex justify-content-between align-items-center">
-                                <span><i class="bi bi-list-ul"></i> All Tasks</span>
-                                <button class="btn btn-outline-primary btn-sm" onclick="refreshTasks()">
-                                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                                </button>
-                            </div>
-                            <div class="card-body">
-                                <div id="taskListContainer">
-                                    <div class="text-center text-muted py-5">
-                                        <i class="bi bi-inbox" style="font-size: 48px; display: block; margin-bottom: 16px;"></i>
-                                        <p>No tasks yet. Create your first task!</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Connectors Section -->
-            <div id="connectorsSection" class="hidden">
-                <h2 class="section-title">Connector Operations</h2>
-
-                <ul class="nav nav-tabs mb-4" role="tablist">
-                    <li class="nav-item">
-                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#extract">
-                            <i class="bi bi-file-text"></i> Extract
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#harvest">
-                            <i class="bi bi-download"></i> Harvest
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#search">
-                            <i class="bi bi-search"></i> Search
-                        </button>
-                    </li>
-                </ul>
-
-                <div class="tab-content">
-                    <!-- Extract -->
-                    <div class="tab-pane fade show active" id="extract">
-                        <div class="card">
-                            <div class="card-header">Extract Content</div>
-                            <div class="card-body">
-                                <form onsubmit="extractContent(event)">
-                                    <div class="mb-3">
-                                        <label class="form-label">Platform</label>
-                                        <select class="form-select" id="extractPlatform">
-                                            <option value="xiaohongshu">Xiaohongshu</option>
-                                            <option value="wechat">WeChat</option>
-                                            <option value="generic">Generic</option>
-                                        </select>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">URLs (one per line)</label>
-                                        <textarea class="form-control" id="extractUrls" rows="5"
-                                            placeholder="https://www.xiaohongshu.com/explore/xxxx" required></textarea>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary">
-                                        <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
-                                        Extract Content
-                                    </button>
-                                </form>
-                                <div id="extractResult" class="mt-3"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Harvest -->
-                    <div class="tab-pane fade" id="harvest">
-                        <div class="card">
-                            <div class="card-header">Harvest User Content</div>
-                            <div class="card-body">
-                                <form onsubmit="harvestContent(event)">
-                                    <div class="mb-3">
-                                        <label class="form-label">Platform</label>
-                                        <select class="form-select" id="harvestPlatform">
-                                            <option value="xiaohongshu">Xiaohongshu</option>
-                                            <option value="wechat">WeChat</option>
-                                        </select>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Creator IDs (one per line)</label>
-                                        <textarea class="form-control" id="harvestCreatorIds" rows="4" required></textarea>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Limit</label>
-                                        <input type="number" class="form-control" id="harvestLimit" value="50" min="1" max="200">
-                                    </div>
-                                    <button type="submit" class="btn btn-primary">
-                                        <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
-                                        Start Harvest
-                                    </button>
-                                </form>
-                                <div id="harvestResult" class="mt-3"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Search -->
-                    <div class="tab-pane fade" id="search">
-                        <div class="card">
-                            <div class="card-header">Search & Extract</div>
-                            <div class="card-body">
-                                <form onsubmit="searchAndExtract(event)">
-                                    <div class="mb-3">
-                                        <label class="form-label">Platform</label>
-                                        <select class="form-select" id="searchPlatform">
-                                            <option value="xiaohongshu">Xiaohongshu</option>
-                                        </select>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Keywords (one per line)</label>
-                                        <textarea class="form-control" id="searchKeywords" rows="4" required></textarea>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label">Limit</label>
-                                        <input type="number" class="form-control" id="searchLimit" value="20" min="1" max="100">
-                                    </div>
-                                    <button type="submit" class="btn btn-primary">
-                                        <span class="spinner-border spinner-border-sm me-2 loading" role="status"></span>
-                                        Search & Extract
-                                    </button>
-                                </form>
-                                <div id="searchResult" class="mt-3"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Platforms Section -->
-            <div id="platformsSection" class="hidden">
-                <h2 class="section-title">Supported Platforms</h2>
-                <div id="platformsList" class="row">
-                    <div class="col-12 text-center py-5">
-                        <div class="spinner-border text-primary" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Auth / Login Section -->
-            <div id="authSection" class="hidden">
-                <h2 class="section-title">Platform Login Management</h2>
-
-                <div class="row">
-                    <div class="col-lg-8">
-                        <div class="card">
-                            <div class="card-header">
-                                <i class="bi bi-plug"></i> Select Platform to Login
-                            </div>
-                            <div class="card-body">
-                                <div class="mb-4">
-                                    <label class="form-label">Choose Platform</label>
-                                    <select class="form-select" id="loginPlatformSelect" onchange="loadPlatformLoginOptions()">
-                                        <option value="">Select a platform...</option>
-                                        <option value="xiaohongshu">小红书 (Xiaohongshu)</option>
-                                        <option value="wechat">微信 (WeChat)</option>
-                                        <option value="douyin">抖音 (Douyin)</option>
-                                    </select>
-                                </div>
-
-                                <div id="loginOptionsContainer" class="hidden">
-                                    <div class="d-grid gap-2 d-md-flex">
-                                        <button class="btn btn-primary" onclick="startQRCodeLogin()">
-                                            <i class="bi bi-qr-code-scan"></i> QR Code Login
-                                        </button>
-                                        <button class="btn btn-outline-secondary" onclick="startCookieLogin()">
-                                            <i class="bi bi-cookie"></i> Cookie Login
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- QR Code Display -->
-                        <div id="qrCodeCard" class="card mt-3 hidden">
-                            <div class="card-header">
-                                <i class="bi bi-qr-code-scan"></i> Scan QR Code to Login
-                            </div>
-                            <div class="card-body text-center">
-                                <div id="qrCodeContainer">
-                                    <div class="spinner-border text-primary" role="status">
-                                        <span class="visually-hidden">Loading...</span>
-                                    </div>
-                                </div>
-                                <p class="mt-3 text-muted" id="qrCodeHint">Please scan the QR code with your mobile device</p>
-                                <div id="loginStatus" class="mt-3"></div>
-                            </div>
-                        </div>
-
-                        <!-- Cookie Login Form -->
-                        <div id="cookieLoginCard" class="card mt-3 hidden">
-                            <div class="card-header">
-                                <i class="bi bi-cookie"></i> Login with Cookie
-                            </div>
-                            <div class="card-body">
-                                <form onsubmit="submitCookieLogin(event)">
-                                    <div class="mb-3">
-                                        <label class="form-label">Cookies (JSON format)</label>
-                                        <textarea class="form-control" id="cookieInput" rows="6"
-                                            placeholder='{"name": "value", ...}'></textarea>
-                                        <small class="text-muted">
-                                            Paste your cookies in JSON format
-                                        </small>
-                                    </div>
-                                    <button type="submit" class="btn btn-primary">
-                                        <i class="bi bi-box-arrow-in-right"></i> Submit
-                                    </button>
-                                </form>
-                                <div id="cookieLoginResult" class="mt-3"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="col-lg-4">
-                        <div class="card">
-                            <div class="card-header">
-                                <i class="bi bi-info-circle"></i> Login Status
-                            </div>
-                            <div class="card-body">
-                                <div id="loginStatusList">
-                                    <div class="text-center text-muted py-4">
-                                        <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                            <span class="visually-hidden">Loading...</span>
-                                        </div>
-                                        <p class="mt-2">Checking login status...</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="card mt-3">
-                            <div class="card-header">
-                                <i class="bi bi-question-circle"></i> Help
-                            </div>
-                            <div class="card-body">
-                                <h6>How to Login</h6>
-                                <ol class="small text-muted">
-                                    <li class="mb-2">Select the platform you want to login</li>
-                                    <li class="mb-2">Choose login method (QR Code or Cookie)</li>
-                                    <li class="mb-2">For QR Code: scan with your phone</li>
-                                    <li>For Cookie: paste your cookies in JSON format</li>
-                                </ol>
-                                <hr>
-                                <h6>Cookie Format</h6>
-                                <pre style="font-size: 0.75rem;" class="mb-0">{
-  "sessionid": "xxx",
-  "token": "yyy"
-}</pre>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+        </aside>
     </div>
 
-    <!-- Task Detail Modal -->
-    <div class="modal fade" id="taskDetailModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Task Details</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div id="taskDetailContent"></div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <script>
+        // =====================================================
+        // API CONFIGURATION
+        // =====================================================
 
-    <!-- Toast -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
-        <div id="liveToast" class="toast" role="alert" data-bs-autohide="true" data-bs-delay="3000">
-            <div class="toast-header">
-                <strong class="me-auto" id="toastTitle">Notification</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body" id="toastBody"></div>
-        </div>
-    </div>
+        const API_BASE = window.location.origin;
+        const API_ENDPOINTS = {
+            login: '/identity/api-keys',
+            agents: '/sniper/agents',
+            execute: '/sniper/execute',
+            task: '/sniper/task',
+            logs: '/sniper/task'
+        };
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
-    <script src="/static/js/app.js"></script>
+        // =====================================================
+        // STATE MANAGEMENT
+        // =====================================================
+
+        let state = {
+            apiKey: localStorage.getItem('microsniper_api_key') || '',
+            selectedChannel: 'all',
+            selectedAgent: null,
+            isRunning: false,
+            agents: [],
+            channels: [],
+            currentTaskId: null,
+            pollInterval: null,
+            lastParams: null  // 保存最后一次提交的参数
+        };
+
+        // =====================================================
+        // API FUNCTIONS
+        // =====================================================
+
+        async function apiCall(endpoint, options = {}) {
+            const headers = {
+                'Content-Type': 'application/json',
+                ...(state.apiKey && { 'Authorization': `Bearer ${state.apiKey}` })
+            };
+
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            return await response.json();
+        }
+
+        async function fetchAgents() {
+            try {
+                const response = await apiCall(API_ENDPOINTS.agents);
+                if (response.code === 0) {
+                    state.agents = response.data.agents;
+                    extractChannels();
+                    renderChannels();
+                    renderAgents();
+                }
+            } catch (error) {
+                console.error('Failed to fetch agents:', error);
+                addConsoleLog('error', `Failed to load agents: ${error.message}`);
+            }
+        }
+
+        async function executeAgent(agentId, params) {
+            try {
+                addConsoleLog('info', `Executing agent: ${agentId}`);
+
+                const response = await apiCall(API_ENDPOINTS.execute, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        agent_or_workflow: agentId,
+                        params: params
+                    })
+                });
+
+                if (response.code === 0) {
+                    state.currentTaskId = response.data.task_id;
+                    addConsoleLog('success', `Task created: ${state.currentTaskId}`);
+                    startTaskPolling(state.currentTaskId);
+                    return state.currentTaskId;
+                } else {
+                    throw new Error(response.message || 'Execution failed');
+                }
+            } catch (error) {
+                addConsoleLog('error', `Execution failed: ${error.message}`);
+                throw error;
+            }
+        }
+
+        async function fetchTaskStatus(taskId) {
+            try {
+                const response = await apiCall(`${API_ENDPOINTS.task}/${taskId}`);
+                if (response.code === 0) {
+                    return response.data;
+                }
+            } catch (error) {
+                console.error('Failed to fetch task status:', error);
+            }
+            return null;
+        }
+
+        function startTaskPolling(taskId) {
+            if (state.pollInterval) {
+                clearInterval(state.pollInterval);
+            }
+
+            // Track the last log index to avoid duplicate logs
+            let lastLogCount = 0;
+
+            state.pollInterval = setInterval(async () => {
+                // Fetch task status
+                const taskData = await fetchTaskStatus(taskId);
+
+                // Fetch task logs
+                const logs = await fetchTaskLogs(taskId);
+
+                // Display new logs
+                if (logs && logs.length > lastLogCount) {
+                    const newLogs = logs.slice(lastLogCount);
+                    newLogs.forEach(log => {
+                        const logType = log.level === 'ERROR' ? 'error' :
+                                     log.level === 'SUCCESS' ? 'success' :
+                                     log.level === 'WARNING' ? 'warning' : 'info';
+                        addConsoleLog(logType, log.message || JSON.stringify(log));
+                    });
+                    lastLogCount = logs.length;
+                }
+
+                // Check task status and stop polling if completed/failed
+                if (taskData) {
+                    if (taskData.status === 'completed') {
+                        addConsoleLog('success', '✓ Task completed successfully!');
+                        stopTaskPolling();
+                        state.isRunning = false;
+                        renderConfigPanel();
+                        return; // Stop execution
+                    } else if (taskData.status === 'failed') {
+                        addConsoleLog('error', `✗ Task failed: ${taskData.error || 'Unknown error'}`);
+                        stopTaskPolling();
+                        state.isRunning = false;
+                        renderConfigPanel();
+                        return; // Stop execution
+                    } else if (taskData.status === 'waiting_login') {
+                        // 任务等待登录
+                        addConsoleLog('warning', '⚠️ 需要登录平台账号');
+                        stopTaskPolling();
+
+                        // 从 task.result 中获取登录信息
+                        const loginInfo = taskData.result || {};
+                        if (loginInfo.login_required) {
+                            renderLoginButtons({
+                                platform: loginInfo.platform,
+                                context_id: loginInfo.context_id,
+                                resource_url: loginInfo.resource_url
+                            });
+                        }
+
+                        // 保持 isRunning 状态，因为任务还没有完成
+                        return;
+                    } else if (taskData.status === 'running') {
+                        if (taskData.progress !== undefined) {
+                            // Only log progress if it changed significantly (every 10%)
+                            const progress = Math.round(taskData.progress);
+                            if (!state.lastLoggedProgress || progress - state.lastLoggedProgress >= 10) {
+                                addConsoleLog('info', `Progress: ${progress}%`);
+                                state.lastLoggedProgress = progress;
+                            }
+                        }
+                    }
+                }
+            }, 2000);
+        }
+
+        function stopTaskPolling() {
+            if (state.pollInterval) {
+                clearInterval(state.pollInterval);
+                state.pollInterval = null;
+            }
+        }
+
+        // =====================================================
+        // DATA PROCESSING
+        // =====================================================
+
+        function extractChannels() {
+            const platformMap = {
+                'xiaohongshu': { name: '小红书', icon: 'fas fa-book', description: 'Xiaohongshu / Little Red Book' },
+                'douyin': { name: '抖音', icon: 'fas fa-music', description: 'Douyin / TikTok China' },
+                'wechat': { name: '微信', icon: 'fab fa-weixin', description: 'WeChat' }
+            };
+
+            const channels = [
+                { id: 'all', name: 'All Platforms', icon: 'fas fa-th-large', description: 'View all agents' }
+            ];
+
+            const platforms = new Set();
+            state.agents.forEach(agent => {
+                if (agent.platform && platformMap[agent.platform]) {
+                    platforms.add(agent.platform);
+                }
+            });
+
+            platforms.forEach(platform => {
+                channels.push({
+                    id: platform,
+                    ...platformMap[platform]
+                });
+            });
+
+            state.channels = channels;
+        }
+
+        function convertParamsToFormSchema(agentParams) {
+            const schema = [];
+
+            for (const [key, config] of Object.entries(agentParams)) {
+                const field = {
+                    key: key,
+                    label: config.description || key,
+                    required: config.required || false
+                };
+
+                // Map type
+                if (config.type === 'list[str]') {
+                    field.type = 'textarea';
+                    field.placeholder = config.placeholder || '每行一个值';
+                    field.hint = config.description;
+                } else if (config.type === 'str') {
+                    field.type = 'text';
+                    field.placeholder = config.placeholder || '';
+                    field.hint = config.description;
+                } else if (config.type === 'int') {
+                    field.type = 'number';
+                    field.placeholder = config.default || '';
+                    field.min = config.min;
+                    field.max = config.max;
+                    field.default = config.default;
+                    field.hint = config.description;
+                } else if (config.type === 'bool' || config.type === 'select') {
+                    field.type = 'select';
+                    field.options = config.options || [
+                        { value: 'true', label: '是' },
+                        { value: 'false', label: '否' }
+                    ];
+                    field.hint = config.description;
+                }
+
+                schema.push(field);
+            }
+
+            return schema;
+        }
+
+        // =====================================================
+        // INITIALIZATION
+        // =====================================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (state.apiKey) {
+                showMainApp();
+            }
+        });
+
+        // =====================================================
+        // AUTHENTICATION
+        // =====================================================
+
+        async function handleLogin(event) {
+            event.preventDefault();
+
+            const apiKey = document.getElementById('apiKeyInput').value.trim();
+            const errorDiv = document.getElementById('loginError');
+            const button = document.getElementById('loginButton');
+
+            if (!apiKey) {
+                errorDiv.textContent = 'Please enter your API key';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+
+            // Show loading state
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner spinner"></i> <span>Validating...</span>';
+            errorDiv.classList.add('hidden');
+
+            try {
+                // TODO: Replace with actual API validation
+                // const response = await fetch('/identity/api-keys', {
+                //     headers: { 'Authorization': `Bearer ${apiKey}` }
+                // });
+
+                // Simulate validation
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Success
+                state.apiKey = apiKey;
+                localStorage.setItem('microsniper_api_key', apiKey);
+                showMainApp();
+
+            } catch (error) {
+                errorDiv.textContent = 'Invalid API key. Please try again.';
+                errorDiv.classList.remove('hidden');
+                button.disabled = false;
+                button.innerHTML = '<i class="fas fa-key"></i> <span>Access Dashboard</span>';
+            }
+        }
+
+        function handleLogout() {
+            state.apiKey = '';
+            localStorage.removeItem('microsniper_api_key');
+            document.getElementById('mainApp').classList.add('hidden');
+            document.getElementById('loginScreen').classList.remove('hidden');
+            document.getElementById('apiKeyInput').value = '';
+
+            // Reset login button
+            const button = document.getElementById('loginButton');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-key"></i> <span>Access Dashboard</span>';
+        }
+
+        function showMainApp() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+            document.getElementById('apiStatus').classList.add('authenticated');
+            document.getElementById('apiKeyDisplay').textContent =
+                state.apiKey.substring(0, 8) + '...';
+
+            // Fetch agents from API
+            fetchAgents();
+        }
+
+        // =====================================================
+        // RENDERING
+        // =====================================================
+
+        function renderChannels() {
+            const container = document.getElementById('channelsList');
+
+            // Render channels
+            const channelsHtml = state.channels.map(channel => `
+                <div class="channel-item ${state.selectedChannel === channel.id ? 'active' : ''}"
+                     onclick="selectChannel('${channel.id}')">
+                    <i class="${channel.icon}"></i>
+                    <div class="channel-tooltip">${channel.name}</div>
+                </div>
+            `).join('');
+
+            // Add divider and platform login button
+            const loginSectionHtml = `
+                <div class="sidebar-divider"></div>
+                <div class="channel-item" onclick="switchToLoginView()">
+                    <i class="fas fa-sign-in-alt"></i>
+                    <div class="channel-tooltip">平台登录</div>
+                </div>
+            `;
+
+            container.innerHTML = channelsHtml + loginSectionHtml;
+        }
+
+        function renderAgents() {
+            const container = document.getElementById('agentsGrid');
+            const titleEl = document.getElementById('currentChannelTitle');
+
+            // Filter agents by channel
+            const filteredAgents = state.selectedChannel === 'all'
+                ? state.agents
+                : state.agents.filter(agent => agent.platform === state.selectedChannel);
+
+            // Update title
+            const currentChannel = state.channels.find(c => c.id === state.selectedChannel);
+            titleEl.textContent = currentChannel ? currentChannel.name : 'All Agents';
+
+            // Render agents
+            if (filteredAgents.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state" style="grid-column: 1 / -1;">
+                        <i class="fas fa-robot"></i>
+                        <p>No agents found for this platform</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = filteredAgents.map(agent => `
+                <div class="agent-card ${state.selectedAgent?.id === agent.id ? 'selected' : ''}"
+                     onclick="selectAgent('${agent.id}')">
+                    <div class="agent-header">
+                        <div class="agent-icon">
+                            <i class="${agent.icon}"></i>
+                        </div>
+                        <div class="agent-title">
+                            <div class="agent-name">${agent.display_name}</div>
+                            <div class="agent-description">${agent.description}</div>
+                        </div>
+                    </div>
+                    <div class="agent-tags">
+                        ${(agent.tags || []).map(tag => `<span class="agent-tag">${tag}</span>`).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderConfigPanel() {
+            const placeholder = document.getElementById('panelPlaceholder');
+            const content = document.getElementById('panelContent');
+
+            if (!state.selectedAgent) {
+                placeholder.classList.remove('hidden');
+                content.classList.add('hidden');
+                return;
+            }
+
+            placeholder.classList.add('hidden');
+            content.classList.remove('hidden');
+
+            // Update header
+            document.getElementById('panelAgentName').textContent = state.selectedAgent.display_name;
+            document.getElementById('panelAgentDesc').textContent = state.selectedAgent.description;
+
+            // Convert params to form schema and render
+            const formSchema = convertParamsToFormSchema(state.selectedAgent.params);
+            const form = document.getElementById('dynamicForm');
+            form.innerHTML = formSchema.map(param => renderFormField(param)).join('');
+
+            // If has last params AND task is running, fill them in and disable fields
+            // Only disable during active execution, not after failure
+            if (state.lastParams && state.isRunning) {
+                for (const [key, value] of Object.entries(state.lastParams)) {
+                    const field = document.getElementById(`field_${key}`);
+                    if (field) {
+                        // Set value based on type
+                        if (Array.isArray(value)) {
+                            field.value = value.join('\n');
+                        } else {
+                            field.value = value;
+                        }
+                        // Disable the field ONLY when running
+                        field.disabled = true;
+                    }
+                }
+            } else if (state.lastParams && !state.isRunning) {
+                // Task completed or failed - show previous values but keep fields editable
+                for (const [key, value] of Object.entries(state.lastParams)) {
+                    const field = document.getElementById(`field_${key}`);
+                    if (field) {
+                        // Set value based on type
+                        if (Array.isArray(value)) {
+                            field.value = value.join('\n');
+                        } else {
+                            field.value = value;
+                        }
+                        // Keep field enabled for editing
+                        field.disabled = false;
+                    }
+                }
+            }
+
+            // Add run button
+            form.innerHTML += `
+                <button type="submit" class="run-button" id="runButton" ${state.isRunning ? 'disabled' : ''}>
+                    <i class="fas ${state.isRunning ? 'fa-spinner spinner' : 'fa-play'}"></i>
+                    <span>${state.isRunning ? 'Running...' : 'Run Task'}</span>
+                </button>
+            `;
+
+            // Don't clear console here - only clear when starting a new task
+        }
+
+        function renderFormField(param) {
+            const baseId = `field_${param.key}`;
+
+            switch (param.type) {
+                case 'text':
+                    return `
+                        <div class="form-group">
+                            <label class="form-label" for="${baseId}">
+                                <i class="fas fa-tag"></i>
+                                ${param.label}
+                                ${param.required ? '<span style="color:var(--error)">*</span>' : ''}
+                            </label>
+                            <input
+                                type="text"
+                                id="${baseId}"
+                                name="${param.key}"
+                                class="form-input"
+                                placeholder="${param.placeholder || ''}"
+                                ${param.required ? 'required' : ''}
+                            >
+                            ${param.hint ? `<span class="form-hint">${param.hint}</span>` : ''}
+                        </div>
+                    `;
+
+                case 'number':
+                    return `
+                        <div class="form-group">
+                            <label class="form-label" for="${baseId}">
+                                <i class="fas fa-hashtag"></i>
+                                ${param.label}
+                                ${param.required ? '<span style="color:var(--error)">*</span>' : ''}
+                            </label>
+                            <input
+                                type="number"
+                                id="${baseId}"
+                                name="${param.key}"
+                                class="form-input"
+                                placeholder="${param.placeholder || ''}"
+                                min="${param.min || ''}"
+                                max="${param.max || ''}"
+                                value="${param.default || ''}"
+                                ${param.required ? 'required' : ''}
+                            >
+                            ${param.hint ? `<span class="form-hint">${param.hint}</span>` : ''}
+                        </div>
+                    `;
+
+                case 'textarea':
+                    return `
+                        <div class="form-group">
+                            <label class="form-label" for="${baseId}">
+                                <i class="fas fa-align-left"></i>
+                                ${param.label}
+                                ${param.required ? '<span style="color:var(--error)">*</span>' : ''}
+                            </label>
+                            <textarea
+                                id="${baseId}"
+                                name="${param.key}"
+                                class="form-textarea"
+                                placeholder="${param.placeholder || ''}"
+                                rows="${param.rows || 4}"
+                                ${param.required ? 'required' : ''}
+                            ></textarea>
+                            ${param.hint ? `<span class="form-hint">${param.hint}</span>` : ''}
+                        </div>
+                    `;
+
+                case 'select':
+                    return `
+                        <div class="form-group">
+                            <label class="form-label" for="${baseId}">
+                                <i class="fas fa-caret-down"></i>
+                                ${param.label}
+                                ${param.required ? '<span style="color:var(--error)">*</span>' : ''}
+                            </label>
+                            <select
+                                id="${baseId}"
+                                name="${param.key}"
+                                class="form-select"
+                                ${param.required ? 'required' : ''}
+                            >
+                                ${param.options.map(opt =>
+                                    `<option value="${opt.value}">${opt.label}</option>`
+                                ).join('')}
+                            </select>
+                            ${param.hint ? `<span class="form-hint">${param.hint}</span>` : ''}
+                        </div>
+                    `;
+
+                default:
+                    return '';
+            }
+        }
+
+        // =====================================================
+        // INTERACTION HANDLERS
+        // =====================================================
+
+        function selectChannel(channelId) {
+            state.selectedChannel = channelId;
+            state.selectedAgent = null;
+            state.lastParams = null;  // Clear saved params when switching channel
+            renderChannels();
+            renderAgents();
+            renderConfigPanel();
+        }
+
+        function selectAgent(agentId) {
+            state.selectedAgent = state.agents.find(a => a.id === agentId);
+            // Don't clear lastParams here - allow viewing previous params
+            renderAgents();
+            renderConfigPanel();
+
+            // On mobile, open panel
+            if (window.innerWidth <= 1200) {
+                document.getElementById('configPanel').classList.add('open');
+            }
+        }
+
+        async function handleRunTask(event) {
+            event.preventDefault();
+
+            if (state.isRunning || !state.selectedAgent) return;
+
+            // Clear console before starting new task
+            clearConsole();
+
+            state.isRunning = true;
+            renderConfigPanel();
+
+            // Collect form data - special handling for list[str] types
+            const params = {};
+
+            for (const [key, config] of Object.entries(state.selectedAgent.params)) {
+                const field = document.getElementById(`field_${key}`);
+
+                if (!field) continue;
+
+                if (config.type === 'list[str]') {
+                    // Textarea: split by newlines and filter empty values
+                    params[key] = field.value
+                        .split('\n')
+                        .map(v => v.trim())
+                        .filter(v => v.length > 0);
+                } else if (config.type === 'int') {
+                    // Number input
+                    params[key] = parseInt(field.value) || 0;
+                } else if (config.type === 'bool') {
+                    // Boolean
+                    params[key] = field.value === 'true' || field.value === true;
+                } else {
+                    // String and other types
+                    params[key] = field.value;
+                }
+            }
+
+            // Save params to state for display after task starts
+            state.lastParams = params;
+
+            addConsoleLog('info', `🚀 启动任务: ${state.selectedAgent.display_name}`);
+            addConsoleLog('info', `📋 提交参数: ${JSON.stringify(params, null, 2)}`);
+            addConsoleLog('info', `🔍 检查登录状态...`);
+
+            try {
+                // 调用执行接口
+                const response = await apiCall(API_ENDPOINTS.execute, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        agent_or_workflow: state.selectedAgent.id,
+                        params: params
+                    })
+                });
+
+                // Debug: log the full response
+                console.log('API Response:', response);
+
+                // 判断是否需要登录
+                if (response.code === 0) {
+                    // 正常执行
+                    addConsoleLog('success', `✓ 登录已验证`);
+                    state.currentTaskId = // 判断是否需要登录
+                if (response.code === 0) {
+                    // 正常执行
+                    addConsoleLog('success', `✓ 登录已验证`);
+                    state.currentTaskId = response.data.task_id;
+                    addConsoleLog('info', `Task created: ${state.currentTaskId}`);
+                    startTaskPolling(state.currentTaskId);
+                } else if (response.code === 401 || response.data?.requires_login) {
+                    // 需要登录
+                    addConsoleLog('warning', '⚠️ 需要登录平台账号', { html: true });
+                    renderLoginButtons(response.data);
+                    addConsoleLog('info', '⏳ 任务已暂停，等待登录确认...');
+                } else {
+                    throw new Error(response.message || 'Execution failed');
+                }response.data.task_id;
+                    addConsoleLog('info', `Task created: ${state.currentTaskId}`);
+                    startTaskPolling(state.currentTaskId);
+                } else if (response.code === 401 || response.data?.requires_login) {
+                    // 需要登录
+                    addConsoleLog('warning', '⚠️ 需要登录平台账号', { html: true });
+                    renderLoginButtons(response.data);
+                    addConsoleLog('info', '⏳ 任务已暂停，等待登录确认...');
+                } else {
+                    throw new Error(response.message || 'Execution failed');
+                }
+            } catch (error) {
+                addConsoleLog('error', `✗ 任务失败: ${error.message}`);
+                state.isRunning = false;
+                renderConfigPanel();
+            }
+        }
+
+        async function fetchTaskLogs(taskId) {
+            try {
+                const response = await apiCall(`${API_ENDPOINTS.logs}/${taskId}/logs`);
+                if (response.code === 0 && response.data.logs) {
+                    return response.data.logs;
+                }
+            } catch (error) {
+                console.error('Failed to fetch logs:', error);
+            }
+            return [];
+        }
+
+        // =====================================================
+        // CONSOLE UTILITIES
+        // =====================================================
+
+        function addConsoleLog(type, message, options = {}) {
+            const console = document.getElementById('consoleOutput');
+            const timestamp = new Date().toLocaleTimeString();
+
+            const line = document.createElement('div');
+            line.className = `console-line ${type}`;
+
+            // 支持自定义内容（包括按钮）
+            if (options.html) {
+                line.innerHTML = `<span class="timestamp">[${timestamp}]</span>${message}`;
+            } else {
+                line.innerHTML = `<span class="timestamp">[${timestamp}]</span>${message}`;
+            }
+
+            console.appendChild(line);
+            console.scrollTop = console.scrollHeight;
+        }
+
+        function clearConsole() {
+            document.getElementById('consoleOutput').innerHTML = '';
+        }
+
+        // 渲染登录按钮
+        function renderLoginButtons(loginData) {
+            const { platform, context_id, resource_url, task_id } = loginData;
+
+            const platformNames = {
+                'xiaohongshu': '小红书',
+                'douyin': '抖音',
+                'wechat': '微信'
+            };
+
+            addConsoleLog('info', `
+                <div class="console-login-card">
+                    <div class="login-card-header">
+                        <i class="fas fa-info-circle"></i>
+                        <span>需要登录 ${platformNames[platform] || platform}</span>
+                    </div>
+                    <div class="login-card-body">
+                        <p>请按以下步骤完成登录：</p>
+                        <ol>
+                            <li>点击下方按钮打开登录页面</li>
+                            <li>使用 ${platformNames[platform] || platform} 扫描二维码</li>
+                            <li>登录完成后点击"我已完成登录"按钮</li>
+                        </ol>
+                        <div class="login-actions">
+                            <a href="${resource_url}"
+                               target="_blank"
+                               class="console-btn"
+                               onclick="window.open('${resource_url}', 'loginWindow', 'width=400,height=600')">
+                                <i class="fas fa-external-link-alt"></i>
+                                打开登录页面
+                            </a>
+                            <button class="console-btn console-btn-primary"
+                                    onclick="confirmLoginAndContinue('${platform}', '${context_id}', '${task_id}')">
+                                <i class="fas fa-check"></i>
+                                我已完成登录
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `, { html: true });
+        }
+
+        // 全局函数：确认登录并继续任务
+        window.confirmLoginAndContinue = async function(platform, contextId, taskId) {
+            const btn = event.target;
+            const originalText = btn.innerHTML;
+
+            try {
+                // 显示加载状态
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner spinner"></i> <span>确认中...</span>';
+
+                addConsoleLog('info', '确认登录状态...');
+
+                // 调用确认登录接口
+                const response = await apiCall(`/connectors/login/${platform}/confirm`, {
+                    method: 'POST',
+                    body: JSON.stringify({ context_id: contextId })
+                });
+
+                if (response.code === 0) {
+                    addConsoleLog('success', '✓ 登录成功！');
+                    addConsoleLog('info', '🔄 继续执行任务...');
+
+                    // 继续执行原任务
+                    // TODO: 这里可能需要重新调用 execute 接口，或者后端已经有 task_id
+                    // 暂时通过 polling 获取任务状态
+                    if (taskId) {
+                        state.currentTaskId = taskId;
+                        startTaskPolling(taskId);
+                    }
+                } else {
+                    throw new Error(response.message);
+                }
+            } catch (error) {
+                addConsoleLog('error', `✗ 确认失败: ${error.message}`);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        };
+
+        // 保存待执行任务的状态（用于登录后恢复）
+        let pendingTask = null;
+
+        // =====================================================
+        // API INTEGRATION POINTS
+        // =====================================================
+        /*
+         * BACKEND DEVELOPERS: Replace the following with real API calls
+         *
+         * 1. Login validation:
+         *    POST /identity/api-keys
+         *    Headers: { Authorization: `Bearer ${apiKey}` }
+         *
+         * 2. Run task:
+         *    POST /api/tasks/run
+         *    Headers: {
+         *        Authorization: `Bearer ${state.apiKey}`,
+         *        Content-Type: 'application/json'
+         *    }
+         *    Body: {
+         *        agent_id: state.selectedAgent.id,
+         *        params: { collected form data }
+         *    }
+         *
+         * 3. Get task status:
+         *    GET /api/tasks/{taskId}
+         *    Headers: { Authorization: `Bearer ${state.apiKey}` }
+         *
+         * 4. Get task logs:
+         *    GET /api/tasks/{taskId}/logs
+         *    Headers: { Authorization: `Bearer ${state.apiKey}` }
+         */
+    </script>
 </body>
 </html>

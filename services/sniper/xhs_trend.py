@@ -32,7 +32,7 @@ chat_model = DashScope(
     id="qwen-plus",
 )
 
-class XiaohongshuDeepAgent:
+class XiaohongshuTrendAgent:
     """小红书深度爆款分析专家"""
 
     def __init__(
@@ -209,7 +209,7 @@ class XiaohongshuDeepAgent:
             title = detail.get("title") or note.get("title", "未知标题")
             liked_count = detail.get("liked_count", note.get("liked_count", 0))
 
-            if detail:
+            if detail and title:
                 # 成功获取详情
                 await task.log_step(
                     3,
@@ -286,9 +286,9 @@ class XiaohongshuDeepAgent:
 
         return "\n\n".join(context_parts)
 
-    async def analyze_trends(self, task: Task) -> str:
+    async def execute(self, task: Task) -> str:
         """
-        分析趋势 - 非流式版本，用于 API 调用
+        执行趋势分析任务 - 统一入口方法
 
         Args:
             task: 已创建的任务对象
@@ -300,12 +300,41 @@ class XiaohongshuDeepAgent:
         self._task = task
 
         try:
+            if not self.keywords:
+                # 记录错误参数
+                await task.fail("无输入，请输入有效关键字重试", 0)
+                await task.save()
+                return "无输入，请输入有效关键字重试"
+
             # 记录初始参数
             await task.log_step(0, "任务初始化",
                               {"keywords": self.keywords},
                               {"task_id": str(task.id), "source": self._source})
             task.progress = 10
             await task.save()
+
+            # === AI Native 登录检查 ===
+            # 在执行任务前，先检查平台登录状态
+            from services.sniper.connectors.xiaohongshu import XiaohongshuConnector
+
+            connector = XiaohongshuConnector(playwright=self._playwright)
+
+            # 调用公共方法检查登录状态
+            # 方法内部会自动处理 session、browser、context 的创建和清理
+            is_logged_in, resource_url = await connector.check_login_status(
+                source=self._source,
+                source_id=self._source_id
+            )
+
+            if not is_logged_in:
+                # 未登录，暂停任务并保存登录信息
+                await task.waiting_login({
+                    "platform": "xiaohongshu",
+                    "context_id": "",  # 登录时会获取
+                    "resource_url": resource_url
+                })
+                logger.info(f"[xhs_trend] 任务 {task.id} 等待登录")
+                return "等待登录"
 
             # Step 1: 关键词裂变
             search_keywords = await self._generate_keywords()
@@ -417,7 +446,8 @@ class XiaohongshuDeepAgent:
         raw_results = await connector_service.search_and_extract(
             platform=PlatformType.XIAOHONGSHU,
             keywords=keywords,
-            limit=limit
+            limit=limit,
+            concurrency=2
         )
 
         all_notes = []
@@ -539,12 +569,14 @@ async def main():
             )
             await task.start()
 
+            keywords = ["SKG", "健康穿戴", "按摩仪"]
+            keywords = ["后端开发", "Agent"]
             # 重新创建 analyzer，传入 task
-            analyzer = XiaohongshuDeepAgent(
+            analyzer = XiaohongshuTrendAgent(
                 source_id=source_id,
                 source=source,
                 playwright=p,
-                keywords=["星星人", "IP文创"],
+                keywords=keywords,
                 task=task
             )
 
@@ -553,7 +585,7 @@ async def main():
             print(f"[Task ID]: {task.id}")
 
             # 执行分析
-            analysis = await analyzer.analyze_trends(task=task)
+            analysis = await analyzer.execute(task=task)
             print(analysis, flush=True)
 
             end_time = datetime.now()

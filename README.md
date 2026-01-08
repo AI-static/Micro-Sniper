@@ -241,10 +241,10 @@ task, report = await sniper.monitor_creators(
 分析关键词的爆款趋势，生成深度分析报告。
 
 ```python
-from services.sniper.xhs_trend import XiaohongshuDeepAgent
+from services.sniper.xhs_trend import XiaohongshuTrendAgent
 
 # 初始化分析器
-analyzer = XiaohongshuDeepAgent(
+analyzer = XiaohongshuTrendAgent(
     source_id="system",
     source="system",
     playwright=playwright,

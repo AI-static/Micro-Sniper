@@ -31,21 +31,26 @@ class CreatorSniper:
         self.today = datetime.now().date()
         self.latency = 10
 
-    async def monitor_creators(
+    async def execute(
         self,
+        task: Task,
         creator_ids: List[str]
     ) -> Dict[str, Any]:
         """
-        监控多个创作者，找出近期发布的内容
+        执行创作者监控任务 - 统一入口方法
 
         Args:
+            task: 任务对象
             creator_ids: 创作者ID列表
 
         Returns:
             监控结果报告
         """
-        if not self._task:
-            raise ValueError("task is required for monitor_creators")
+        if not task:
+            raise ValueError("task is required")
+
+        # 设置 task
+        self._task = task
 
         logger.info(f"开始监控 {len(creator_ids)} 个创作者")
 
@@ -279,7 +284,8 @@ class CreatorSniper:
             try:
                 batch_details = await connector_service.get_note_details(
                     urls=batch_urls,
-                    platform=PlatformType.XIAOHONGSHU
+                    platform=PlatformType.XIAOHONGSHU,
+                    concurrency=1
                 )
 
                 logger.info(f"[DEBUG] 批次返回 {len(batch_details)} 个结果")
@@ -345,7 +351,7 @@ class CreatorSniper:
         格式化监控报告（优化版，包含创作者昵称）
 
         Args:
-            monitor_result: monitor_creators 返回的结果
+            monitor_result: execute 返回的结果
 
         Returns:
             格式化的报告文本
@@ -514,7 +520,7 @@ async def main():
         sniper = CreatorSniper(source=source, source_id=source_id, playwright=p, task=task)
 
         # 执行监控
-        report = await sniper.monitor_creators(creator_ids)
+        report = await sniper.execute(task=task, creator_ids=creator_ids)
 
         print(report, flush=True)
 

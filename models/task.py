@@ -15,6 +15,7 @@ class TaskStatus(str, Enum):
     """任务状态枚举"""
     PENDING = "pending"
     RUNNING = "running"
+    WAITING_LOGIN = "waiting_login"  # 等待用户登录平台
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -67,6 +68,13 @@ class Task(Model):
         """开始执行任务"""
         self.status = TaskStatus.RUNNING
         self.started_at = datetime.now()
+        await self.save()
+
+    async def waiting_login(self, login_info: dict = None):
+        """标记任务等待登录"""
+        self.status = TaskStatus.WAITING_LOGIN
+        if login_info:
+            self.result = {"login_required": True, **login_info}
         await self.save()
 
     async def complete(self, result_data: dict = None):
@@ -174,6 +182,8 @@ class Task(Model):
         elif self.status == TaskStatus.RUNNING:
             completed_steps = len([l for l in self.logs if l.get('status') == 'completed'])
             return f"任务执行中，已完成 {completed_steps} 个步骤，当前进度 {self.progress}%"
+        elif self.status == TaskStatus.WAITING_LOGIN:
+            return "任务等待登录，请在平台完成登录后继续"
         elif self.status == TaskStatus.COMPLETED:
             return "任务已完成，可查看执行结果和报告"
         elif self.status == TaskStatus.FAILED:

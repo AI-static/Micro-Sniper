@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from .base import BaseConnector
 from utils.logger import logger
+from utils.oss import oss_client
 from agentbay import ActOptions, ExtractOptions, CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
 from models.connectors import PlatformType
 
@@ -23,8 +24,19 @@ class SearchItems(BaseModel):
     author: str = Field(description="作者昵称")
     liked_count: str = Field(description="点赞数")
 
+class CreatorsItems(BaseModel):
+    """搜索结果模型"""
+    user_id: str = Field(description="抖音号")
+    author: str = Field(description="作者昵称")
+    fans_count: int = Field(description="粉丝数,单位(个)")
+
+class CreatorsResult(BaseModel):
+    """搜索结果模型"""
+    items: List[CreatorsItems] = Field(description="条目列表")
+
+
 class SearchResult(BaseModel):
-    items: SearchItems = Field(description="条目列表")
+    items: List[SearchItems] = Field(description="条目列表")
 
 class VideoDetail(BaseModel):
     """视频详情模型"""
@@ -73,61 +85,57 @@ class DouyinConnector(BaseConnector):
 
             try:
                 # 1. 导航到抖音首页
-                nav_result = await session.browser.agent.navigate("https://www.douyin.com")
-                logger.info(f"[douyin] Navigated to douyin: {nav_result}")
-
+                nav_result = await session.browser.agent.navigate(
+                    f"https://www.douyin.com/jingxuan/search/{creator_id}")
                 await asyncio.sleep(2)
 
-                # 2. 使用 Agent 查找搜索框并输入关键词
+                # 2. 使用 Agent 搜索创作者
                 search_act = ActOptions(
                     action=f"""
-                    1. 如果页面有登录弹窗或广告弹窗，先关闭它们
-                    2. 找到页面顶部的搜索框（通常有放大镜图标或"搜索"文字）
-                    3. 点击搜索框
-                    4. 输入关键词：{keyword}
-                    5. 按回车键执行搜索
-                    """,
+                                    1. 如果有弹窗，先关闭。
+                                    2. 在标签页中点击用户。
+                                    """,
                     use_vision=True
                 )
 
-                act_result = await session.browser.agent.act(search_act)
-                logger.info(f"[douyin] Search action completed: {act_result}")
+                results = await session.browser.agent.act(search_act)
+                logger.info(f"[douyin] Search user action: {results}")
 
-                # 3. 等待搜索结果加载
-                await asyncio.sleep(3)
+                if not results.success:
+                    return {
+                        "creator_id": creator_id,
+                        "success": False,
+                        "data": "动作未成功"
+                    }
 
-                # 4. 使用 Agent 提取搜索结果
+                await asyncio.sleep(5)
+
+                # 3. 提取用户主页
                 extract_options = ExtractOptions(
                     instruction=f"""
-                    从当前抖音搜索结果页面中提取前 {limit} 个视频信息：
-                    1. 视频标题
-                    2. 视频链接（以 /video/ 开头的相对路径或完整 URL）
-                    3. 作者昵称
-                    4. 点赞数（如果有）
-
-                    只返回列表中的视频信息，不要返回广告或其他无关内容。
-                    """,
-                    schema=SearchResult,
-                    use_text_extract=True
+                                    当前搜索到的用户有哪些，只输出前5个。
+                                    """,
+                    schema=CreatorsResult,
+                    # use_text_extract=True,
+                    use_vision=True
                 )
 
                 success, data = await session.browser.agent.extract(extract_options)
-                logger.info(f"搜索结果是：{success} {data}")
-                if success and data:
-                    # 将 Pydantic 模型转换为字典
-                    results = [item.model_dump() if hasattr(item, 'model_dump') else item for item in data]
-                    logger.info(f"[douyin] Extracted {len(results)} results for keyword: {keyword}")
+
+                if success and data and data.items:
+                    results = [item.model_dump() if hasattr(item, 'model_dump') else item for item in data.items]
+                    logger.info(f"[douyin] Harvested {len(results)} videos from {creator_id}")
                     return {
-                        "keyword": keyword,
+                        "creator_id": creator_id,
                         "success": True,
                         "data": results
                     }
                 else:
-                    logger.warning(f"[douyin] Failed to extract results for keyword: {keyword}")
+                    logger.warning(f"[douyin] Failed to harvest from {creator_id}")
                     return {
-                        "keyword": keyword,
+                        "creator_id": creator_id,
                         "success": False,
-                        "error": "Failed to extract search results",
+                        "error": "Failed to extract user content",
                         "data": []
                     }
 
@@ -282,17 +290,17 @@ class DouyinConnector(BaseConnector):
             logger.info(f"[douyin] Harvesting content {idx + 1}/{len(creator_ids)}: {creator_id}")
 
             try:
+                screenshot_url = []
                 # 1. 导航到抖音首页
-                nav_result = await session.browser.agent.navigate("https://www.douyin.com")
+                nav_result = await session.browser.agent.navigate(f"https://www.douyin.com/jingxuan/search/{creator_id}?type=user")
                 await asyncio.sleep(2)
 
                 # 2. 使用 Agent 搜索创作者
                 search_act = ActOptions(
                     action=f"""
-                    1. 如果有弹窗，先关闭
-                    2. 找到并点击搜索框
-                    3. 输入创作者名称或ID：{creator_id}
-                    4. 按回车搜索，点击第一个匹配的用户进入主页
+                    1. 如果有弹窗，请关闭。
+                    2. 点击第一个用户，进入其主页。
+                    3. 滑动窗口到最下方。
                     """,
                     use_vision=True
                 )
@@ -309,15 +317,15 @@ class DouyinConnector(BaseConnector):
 
                 await asyncio.sleep(5)
 
-                # 3. 提取用户主页的视频列表
-                max_videos = limit or 20
+                screenshot_b64 = await session.browser.agent.screenshot()
+                object_name = f"抖音获取用户视频截图留证-{int(time.time())}"
+                await oss_client.upload_file(object_name=object_name, file_data=screenshot_b64)
+                screenshot_url.append(oss_client.get_public_url(object_name))
+
+                # 3. 提取用户主页
                 extract_options = ExtractOptions(
                     instruction=f"""
-                    从当前页面中提取视频列表：
-                    1. 提取前 {max_videos} 个视频
-                    2. 每个视频包括：标题、链接、点赞数
-
-                    只返回视频列表，不要返回其他内容。
+                    当前用户的视频信息有哪些，只输出前{limit}个。
                     """,
                     schema=SearchResult,
                     use_text_extract=True,
@@ -326,10 +334,11 @@ class DouyinConnector(BaseConnector):
 
                 success, data = await session.browser.agent.extract(extract_options)
 
-                if success and data:
-                    results = [item.model_dump() if hasattr(item, 'model_dump') else item for item in data]
+                if success and data and data.items:
+                    results = [item.model_dump() if hasattr(item, 'model_dump') else item for item in data.items]
                     logger.info(f"[douyin] Harvested {len(results)} videos from {creator_id}")
                     return {
+                        "screenshot_url": screenshot_url,
                         "creator_id": creator_id,
                         "success": True,
                         "data": results
@@ -337,6 +346,7 @@ class DouyinConnector(BaseConnector):
                 else:
                     logger.warning(f"[douyin] Failed to harvest from {creator_id}")
                     return {
+                        "screenshot_url": screenshot_url,
                         "creator_id": creator_id,
                         "success": False,
                         "error": "Failed to extract user content",

@@ -60,3 +60,31 @@ class BrowserInitializationException(BusinessException):
             code=ErrorCode.INTERNAL_ERROR,
             details={"error_type": "browser_init_failed"}
         )
+
+
+class NotLoggedInException(BusinessException):
+    """平台未登录异常 - 需要登录平台账号才能继续操作
+
+    注意：这是业务逻辑层面的"未登录"，不是系统身份验证的 401
+    """
+    def __init__(
+        self,
+        message: str = "需要登录平台账号",
+        platform: str = None,
+        context_id: str = None,
+        resource_url: str = None
+    ):
+        super().__init__(
+            message=message,
+            code=ErrorCode.NOT_LOGGED_IN,  # 使用业务错误码 604，不是 HTTP 401
+            details={
+                "error_type": "not_logged_in",
+                "platform": platform,
+                "context_id": context_id,
+                "resource_url": resource_url,
+                "requires_login": True
+            }
+        )
+        self.platform = platform
+        self.context_id = context_id
+        self.resource_url = resource_url

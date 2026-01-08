@@ -58,6 +58,7 @@ class ErrorCode:
     IMAGE_GENERATE_FAILED = 601
     IMAGE_EDIT_FAILED = 602
     IMAGE_UPLOAD_FAILED = 603
+    NOT_LOGGED_IN = 604  # 平台未登录
 
 
 # 错误消息定义

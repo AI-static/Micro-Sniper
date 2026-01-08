@@ -5,7 +5,7 @@ import asyncio
 import time
 import json
 import base64
-from typing import Dict, Any, List, Optional, Callable, AsyncGenerator
+from typing import Dict, Any, List, Optional, Callable, AsyncGenerator, Tuple
 from playwright.async_api import Page
 from datetime import datetime
 
@@ -281,7 +281,12 @@ class XiaohongshuConnector(BaseConnector):
                     logger.info("[xiaohongshu] Got QRCode from img src")
                     # 解析 base64 数据
                     if "," in src:
-                        screenshot_bytes = base64.b64decode(src.split(",")[1])
+                        encoded = src.split(",")[1]
+                        # Fix padding: base64 strings must have length multiple of 4
+                        missing_padding = len(encoded) % 4
+                        if missing_padding:
+                            encoded += '=' * (4 - missing_padding)
+                        screenshot_bytes = base64.b64decode(encoded)
             
             # 方法2: 如果 src 是 URL，则截图获取
             if qrcode_elem and not screenshot_bytes:
@@ -328,13 +333,43 @@ class XiaohongshuConnector(BaseConnector):
         try:
             # 等待页面加载
             await page.wait_for_selector("body", timeout=10000)
-            
+
             # 检查登录成功的元素
             element = await page.query_selector('.main-container .user .link-wrapper .channel')
             return bool(element)
         except Exception as e:
             logger.debug(f"[xiaohongshu] Check login status error: {e}")
             return False
+
+    async def check_login_status(self, source: str = "default", source_id: str = "default") -> Tuple[bool, str]:
+        """检查登录状态（公共方法）
+
+        如果未登录，会抛出 NotLoggedInException
+
+        Raises:
+            NotLoggedInException: 未登录时抛出
+
+        Returns:
+            bool: 已登录返回 True
+        """
+        from utils.exceptions import NotLoggedInException
+
+        # 获取 session
+        session = await self._get_browser_session(source, source_id)
+        browser, context = await self._connect_cdp(session)
+
+        try:
+            # 检查登录
+            page = await context.new_page()
+            await page.goto("https://www.xiaohongshu.com", timeout=30000)
+            await asyncio.sleep(1)
+
+            is_logged_in = await self._check_login_status(page)
+            await page.close()
+
+            return is_logged_in, session.resource_url
+        finally:
+            await self._cleanup_resources(session, browser)
 
     async def publish_content(
             self,

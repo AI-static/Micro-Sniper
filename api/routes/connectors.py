@@ -298,12 +298,14 @@ async def login(request: Request):
 
 @connectors_bp.post("/login/<platform:str>/confirm")
 async def confirm_login(request: Request, platform: str):
-    """用户确认已完成登录 - 保存 context
+    """用户确认已完成登录 - 立即保存登录状态
 
     用户在云浏览器中完成登录后，点击"我已完成登录"按钮调用此接口：
     1. 从 connector._login_tasks 获取 session 和 browser
-    2. 调用 _cleanup_resources 清理资源
-    3. 调用 agent_bay.delete(session, sync_context=True) 落盘保存
+    2. 调用 _cleanup_resources 清理资源并持久化 cookies
+    3. 清理 _login_tasks 记录
+
+    优势：无需等待120秒，立即保存登录状态
     """
     try:
         data = request.json or {}
@@ -363,17 +365,16 @@ async def confirm_login(request: Request, platform: str):
                 data=None
             ).model_dump(), status=500)
 
-        # 清理资源并保存 context
-        logger.info(f"[Auth] User confirmed login for {platform}, saving context: {context_id}")
+        # 立即清理资源并保存 context（无需等待120秒）
+        logger.info(f"[Auth] User confirmed login for {platform}, immediately saving context: {context_id}")
 
         try:
-            # 调用 connector 的 _cleanup_resources 方法
+            # 调用 _cleanup_resources 会自动:
+            # 1. 优雅关闭浏览器
+            # 2. 同步 cookies 到 context (sync_context=True)
             await connector._cleanup_resources(session, browser)
 
-            # 保存 context（sync_context=True 落盘）
-            await connector.agent_bay.delete(session, sync_context=True)
-
-            logger.info(f"[Auth] Context saved successfully: {context_id}")
+            logger.info(f"[Auth] Context saved and resources cleaned successfully: {context_id}")
 
         except Exception as e:
             logger.error(f"[Auth] Error saving context: {e}")
@@ -384,7 +385,7 @@ async def confirm_login(request: Request, platform: str):
 
         return json(BaseResponse(
             code=ErrorCode.SUCCESS,
-            message="Login context saved successfully",
+            message="登录状态已保存",
             data={
                 "context_id": context_id,
                 "platform": platform,

@@ -85,8 +85,16 @@ class DouyinDeepAgent:
         keywords = [k.strip() for k in resp.content.replace("，", ",").split(",") if k.strip()]
         return keywords
 
-    async def analyze_trends(self, task: Task) -> str:
-        """分析抖音趋势"""
+    async def execute(self, task: Task) -> str:
+        """
+        执行抖音趋势分析任务 - 统一入口方法
+
+        Args:
+            task: 已创建的任务对象
+
+        Returns:
+            分析结果
+        """
         # 设置 task
         self._task = task
 
@@ -226,7 +234,7 @@ async def main():
         await task.start()
 
         # 执行分析
-        analysis = await analyzer.analyze_trends(task=task)
+        analysis = await analyzer.execute(task=task)
         print(analysis)
 
         end_time = datetime.now()

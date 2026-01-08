@@ -1,0 +1,61 @@
+from fastapi import APIRouter, HTTPException, Depends, status
+from schemas.{{module}} import {{Model}}Create, {{Model}}Response
+from services.{{module}}_service import {{Model}}Service
+
+router = APIRouter(prefix="/api/{{module}}", tags=["{{module}}"])
+
+@router.post("/", response_model={{Model}}Response, status_code=status.HTTP_201_CREATED)
+async def create_{{model_lower}}(
+    data: {{Model}}Create,
+    service: {{Model}}Service = Depends()
+):
+    """Create a new {{model_lower}}."""
+    try:
+        return await service.create(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.get("/{id}", response_model={{Model}}Response)
+async def get_{{model_lower}}(
+    id: int,
+    service: {{Model}}Service = Depends()
+):
+    """Get {{model_lower}} by ID."""
+    result = await service.get_one(id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Not found")
+    return result
+
+@router.get("/", response_model=list[{{Model}}Response])
+async def list_{{model_lower}}(
+    skip: int = 0,
+    limit: int = 100,
+    service: {{Model}}Service = Depends()
+):
+    """List all {{model_lower}} with pagination."""
+    return await service.list(skip, limit)
+
+@router.put("/{id}", response_model={{Model}}Response)
+async def update_{{model_lower}}(
+    id: int,
+    data: {{Model}}Create,
+    service: {{Model}}Service = Depends()
+):
+    """Update {{model_lower}}."""
+    try:
+        return await service.update(id, data)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_{{model_lower}}(
+    id: int,
+    service: {{Model}}Service = Depends()
+):
+    """Delete {{model_lower}}."""
+    success = await service.delete(id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Not found")
+    return None
