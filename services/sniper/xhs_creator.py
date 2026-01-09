@@ -29,28 +29,28 @@ class CreatorSniper:
         self._source = source
         self._source_id = source_id
         self.today = datetime.now().date()
-        self.latency = 10
+        self.latency = None  # 将在 execute 中设置
 
     async def execute(
         self,
-        task: Task,
+        latency: int,
         creator_ids: List[str]
     ) -> Dict[str, Any]:
         """
         执行创作者监控任务 - 统一入口方法
 
         Args:
-            task: 任务对象
+            latency: 最近多少天
             creator_ids: 创作者ID列表
 
         Returns:
             监控结果报告
         """
-        if not task:
+        if not self._task:
             raise ValueError("task is required")
 
-        # 设置 task
-        self._task = task
+        # 保存 latency 为实例变量，供其他方法使用
+        self.latency = latency
 
         logger.info(f"开始监控 {len(creator_ids)} 个创作者")
 
@@ -60,7 +60,7 @@ class CreatorSniper:
                               {
                                 "purpose": f"监控 {len(creator_ids)} 个创作者的近期内容",
                                 "creators_to_monitor": creator_ids,
-                                "monitoring_period_days": self.latency
+                                "monitoring_period_days": latency
                               },
                               {
                                 "task_initialized": f"任务已创建，ID: {self._task.id}",
@@ -68,6 +68,25 @@ class CreatorSniper:
                               })
             self._task.progress = 10
             await self._task.save()
+
+            # === AI Native 登录检查 ===
+            # 在执行任务前，先检查平台登录状态
+            from services.sniper.connectors.xiaohongshu import XiaohongshuConnector
+
+            connector = XiaohongshuConnector(playwright=self._playwright)
+
+            # 调用公共方法检查登录状态
+            # 方法内部会自动处理 session、browser、context 的创建和清理
+            login_res = await connector.login_with_qrcode(
+                source=self._source,
+                source_id=self._source_id
+            )
+            logger.info(f"login_res --> {login_res}")
+            if not login_res.get("is_logged_in"):
+                # 未登录，暂停任务并保存登录信息
+                await self._task.waiting_login(login_res)
+                logger.info(f"[xhs_creator] 任务 {self._task.id} 等待登录")
+                return "等待登录"
 
             # 使用 async with ConnectorService
             async with ConnectorService(self._playwright, self._source, self._source_id, self._task) as connector_service:
@@ -118,7 +137,7 @@ class CreatorSniper:
                     log_lines.append("")
 
                 log_lines.append(f"数据统计: 成功 {success_count}/{len(creator_ids)} 个创作者，共获取 {total_notes} 篇笔记")
-                log_lines.append(f"下一步: 将筛选出近{self.latency}天内发布的笔记，并获取详细信息")
+                log_lines.append(f"下一步: 将筛选出近{latency}天内发布的笔记，并获取详细信息")
 
                 log_text = "\n".join(log_lines)
 
@@ -157,7 +176,7 @@ class CreatorSniper:
                             {
                                 "creator_id": creator_id,
                                 "total_notes": len(notes),
-                                "monitoring_period_days": self.latency
+                                "monitoring_period_days": latency
                             },
                             {
                                 "status": f"开始筛选 {len(notes)} 篇笔记"
@@ -181,7 +200,7 @@ class CreatorSniper:
                             "pinned_notes": pinned_notes
                         }
 
-                        logger.info(f"创作者 {creator_id}: 共 {len(notes)} 篇，近{self.latency}天 {len(today_notes)} 篇")
+                        logger.info(f"创作者 {creator_id}: 共 {len(notes)} 篇，近{latency}天 {len(today_notes)} 篇")
                         logger.info(f"[DEBUG] 结果字典更新: creator_id={creator_id}, today_notes_count={len(today_notes)}")
 
                         # 记录筛选完成
@@ -217,7 +236,7 @@ class CreatorSniper:
                     "today_notes_count": total_today_notes,
                     "results": results,
                     "date": self.today.isoformat()
-                })
+                },latency)
 
                 # 简要日志摘要
                 await self._task.log_step(3, "生成监控报告",
@@ -231,7 +250,7 @@ class CreatorSniper:
                                   })
 
                 # 存储 AI 可读的自然语言报告
-                await self._task.complete({"report": report})
+                await self._task.complete({"output": report})
                 return report
 
         except Exception as e:
@@ -305,7 +324,7 @@ class CreatorSniper:
                         continue
 
                     publish_date = datetime.fromtimestamp(publish_time / 1000).date()
-                    cutoff_date = self.today - timedelta(days=self.latency)
+                    cutoff_date = self.today - timedelta(days=latency)
 
                     # 合并基础信息和详情
                     original_note = notes[current_note_index]
@@ -323,7 +342,7 @@ class CreatorSniper:
                     if publish_date >= cutoff_date:
                         # 近期内的笔记（包括置顶），加入列表
                         today_notes.append(full_note)
-                        logger.info(f"[DEBUG] ✅ 发现{self.latency}天内新笔记: {title[:30]} (置顶: {is_pinned}, 当前共{len(today_notes)}篇)")
+                        logger.info(f"[DEBUG] ✅ 发现{latency}天内新笔记: {title[:30]} (置顶: {is_pinned}, 当前共{len(today_notes)}篇)")
                     elif not is_pinned:
                         # 非置顶且超出周期的笔记，触发停止
                         last_note = full_note
@@ -346,7 +365,7 @@ class CreatorSniper:
             "pinned_notes": pinned_notes
         }
 
-    def format_report(self, monitor_result: Dict[str, Any]) -> str:
+    def format_report(self, monitor_result: Dict[str, Any], latency) -> str:
         """
         格式化监控报告（优化版，包含创作者昵称）
 
@@ -376,7 +395,7 @@ class CreatorSniper:
         lines.append("=" * 30)
         lines.append(f"📈 监控概览:")
         lines.append(f"   • 监控创作者: {monitor_result.get('monitored_creators')}/{monitor_result.get('total_creators')}")
-        lines.append(f"   • 监控周期: 近{self.latency}天")
+        lines.append(f"   • 监控周期: 近{latency}天")
         lines.append(f"   • 新增笔记: {monitor_result.get('today_notes_count')} 篇")
         lines.append("")
         lines.append("-" * 30)
@@ -404,10 +423,10 @@ class CreatorSniper:
             lines.append(f"\n👤 创作者 #{idx}: {creator_nickname}")
             lines.append(f"   🆔 ID: {creator_id}")
             lines.append(f"   📚 总笔记数: {total_count} 篇")
-            lines.append(f"   ✨ 近{self.latency}日新增: {today_count} 篇")
+            lines.append(f"   ✨ 近{latency}日新增: {today_count} 篇")
 
             # 上次发布内容
-            lines.append(f"\n   📅 前{self.latency}发布的最后一篇:")
+            lines.append(f"\n   📅 前{latency}发布的最后一篇:")
             if last_note:
                 last_note_url = last_note.get("full_url", "")
                 last_time = last_note.get("update_time", "未知时间")
@@ -427,7 +446,7 @@ class CreatorSniper:
 
             # 新增内容
             if today_count > 0:
-                lines.append(f"\n   🎉 近{self.latency}日新增内容 ({today_count} 篇):")
+                lines.append(f"\n   🎉 近{latency}日新增内容 ({today_count} 篇):")
                 lines.append("")
 
                 # 按时间倒序排列（最新的在前）
@@ -453,7 +472,7 @@ class CreatorSniper:
 
                     lines.append("")
             else:
-                lines.append(f"\n   ℹ️  近{self.latency}日无新内容")
+                lines.append(f"\n   ℹ️  近{latency}日无新内容")
                 lines.append("")
 
             # 置顶笔记
@@ -520,7 +539,7 @@ async def main():
         sniper = CreatorSniper(source=source, source_id=source_id, playwright=p, task=task)
 
         # 执行监控
-        report = await sniper.execute(task=task, creator_ids=creator_ids)
+        report = await sniper.execute(creator_ids=creator_ids, latency= 10)
 
         print(report, flush=True)
 

@@ -65,7 +65,8 @@ async def execute_agent(request: Request):
         task = await Task.create(
             source=auth_info.source.value,
             source_id=auth_info.source_id,
-            task_type=agent_id
+            task_type=agent_id,
+            params=params
         )
         await task.start()
 
@@ -110,11 +111,22 @@ async def _run_agent_task(agent_class, request: Request, task, **kwargs):
             source_id=auth_info.source_id,
             source=auth_info.source.value,
             playwright=request.app.ctx.playwright,
-            **kwargs
+            task=task
         )
 
-        # 执行任务 - 所有 Agent/Workflow 统一使用 execute 方法
-        await agent.execute(task=task)
+        # 设置超时时间（默认 30 分钟，可根据不同 Agent 调整）
+        timeout_seconds = getattr(agent, 'timeout_seconds', 30 * 60)
+
+        # 使用 asyncio.wait_for 添加超时控制
+        try:
+            await asyncio.wait_for(
+                agent.execute(**kwargs),
+                timeout=timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"Agent {agent_class.__name__} 执行超时（{timeout_seconds}秒）")
+            await task.fail(f"任务执行超时（{timeout_seconds}秒）", progress=task.progress)
+            return
 
     except Exception as e:
         logger.error(f"Agent {agent_class.__name__} 执行失败: {e}")
@@ -139,6 +151,67 @@ async def get_task(request: Request, task_id: str):
         message="获取成功",
         data=task.to_agent_readable()
     ).model_dump())
+
+
+@sniper_bp.post("/task/<task_id:str>/retry")
+async def retry_task(request: Request, task_id: str):
+    """重试任务"""
+    try:
+        from models.task import Task, TaskStatus
+
+        # 获取原任务（会复用此任务对象）
+        task = await Task.get_or_none(id=task_id)
+        if not task:
+            return json(BaseResponse(
+                code=ErrorCode.NOT_FOUND,
+                message="任务不存在",
+                data=None
+            ).model_dump(), status=404)
+
+        # 获取 Agent 类
+        agent_id = task.task_type
+        if agent_id not in AGENT_WORKFLOW_MAPPING:
+            return json(BaseResponse(
+                code=ErrorCode.INTERNAL_ERROR,
+                message=f"不支持的 Agent/Workflow: {agent_id}",
+                data=None
+            ).model_dump(), status=400)
+
+        # 重置任务状态（复用原任务对象）
+        task.status = TaskStatus.RUNNING
+        task.progress = 0
+        task.error = None
+        task.result = None
+        task.started_at = None
+        task.completed_at = None
+        # logs 保留，作为历史记录参考
+        await task.save()
+
+        # 获取原参数
+        original_params = task.params or {}
+
+        # 获取 Agent 类
+        agent_class = AGENT_WORKFLOW_MAPPING[agent_id]
+
+        # 在后台执行 Agent，复用同一个 task
+        asyncio.create_task(_run_agent_task(agent_class, request, task, **original_params))
+
+        return json(BaseResponse(
+            code=ErrorCode.SUCCESS,
+            message="任务已重新开始",
+            data={
+                "task_id": str(task.id),
+                "agent_or_workflow": agent_id,
+                "message": f"{agent_id} 任务已重新开始执行"
+            }
+        ).model_dump())
+    except Exception as e:
+        logger.error(f"重试任务失败: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=str(e),
+            data=None
+        ).model_dump(), status=500)
 
 
 @sniper_bp.get("/task/<task_id:str>/logs")

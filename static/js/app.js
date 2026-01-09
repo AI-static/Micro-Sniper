@@ -178,7 +178,7 @@ async function createCreatorTask(event) {
         .map(id => id.trim())
         .filter(id => id);
 
-    const days = document.getElementById('monitorDays').value;
+    const latency = document.getElementById('monitorDays').value;
 
     if (!platform) {
         displayError('creatorTaskResult', { response: { data: { message: '请选择平台' } } });
@@ -190,7 +190,7 @@ async function createCreatorTask(event) {
     try {
         const response = await api.post(`/sniper/${platform}/harvest`, {
             creator_ids: creatorIds,
-            days: parseInt(days)
+            latency: parseInt(latency)
         });
 
         displayResult('creatorTaskResult', response.data);

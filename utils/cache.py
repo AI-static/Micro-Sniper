@@ -226,7 +226,7 @@ async def distributed_lock(
         acquired = await lock.acquire()
 
         if not acquired:
-            raise Exception(f"Failed to acquire lock: {key}")
+            raise Exception(f"Failed to acquire lock: {key}，为防止封号，自动触发锁。")
 
         yield lock
     except Exception as e:

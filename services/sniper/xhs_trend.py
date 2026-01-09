@@ -40,14 +40,12 @@ class XiaohongshuTrendAgent:
             source_id: str = "system_user",
             source: str = "system",
             playwright: Any = None,
-            keywords: List[str] = None,
             task: Task = None
     ):
         self._playwright = playwright
         self._task = task
         self._source = source
         self._source_id = source_id
-        self.keywords = keywords
         self.current_date = datetime.now().strftime("%Y-%m-%d")
 
         # === 核心变化 1：Agent 不再挂载 tools ===
@@ -77,22 +75,22 @@ class XiaohongshuTrendAgent:
     # === 核心变化 2：工具变成了普通的 Python 异步方法 ===
     # 这些方法不再被 Agent 自动调用，而是被 Python 逻辑显式调用
 
-    async def _generate_keywords(self) -> List[str]:
+    async def _generate_keywords(self, core_keyword: str) -> List[str]:
         """前置工作 Step 1: 裂变关键词"""
         logger.info("正在裂变关键词...")
-        prompt = f"请基于核心词「{self.keywords}」融合这三个点，裂变出 3 个不同维度的搜索词（核心词、场景词、痛点词）。只返回逗号分隔的关键词字符串，不要其他内容。"
+        prompt = f"请基于核心词「{core_keyword}」融合这三个点，裂变出 3 个不同维度的搜索词（核心词、场景词、痛点词）。只返回逗号分隔的关键词字符串，不要其他内容。"
         resp = await self.planner.arun(prompt)
         # 简单的清洗逻辑
         keywords = [k.strip() for k in resp.content.replace("，", ",").split(",") if k.strip()]
         return keywords  # 确保只取前3个
 
-    async def _run_search(self, keywords: List[str], task: Task, connector_service, limit: int = 10) -> List[Dict]:
+    async def _run_search(self, keywords: List[str], connector_service, limit: int = 10) -> List[Dict]:
         """前置工作 Step 2: 执行搜索"""
         from models.connectors import PlatformType
         logger.info(f"正在执行搜索: {keywords}")
 
         # 记录开始搜索
-        await task.log_step(
+        await self._task.log_step(
             2,
             "执行搜索",
             {
@@ -135,7 +133,7 @@ class XiaohongshuTrendAgent:
         top_notes = sorted_notes[:10]
 
         # 记录搜索完成
-        await task.log_step(
+        await self._task.log_step(
             2,
             "执行搜索",
             {
@@ -151,7 +149,7 @@ class XiaohongshuTrendAgent:
 
         return top_notes
 
-    async def _fetch_details(self, notes: List[Dict], task: Task, connector_service) -> str:
+    async def _fetch_details(self, notes: List[Dict], connector_service) -> str:
         """前置工作 Step 3: 抓取详情并拼接成文本"""
         from models.connectors import PlatformType
 
@@ -160,7 +158,7 @@ class XiaohongshuTrendAgent:
         logger.info(f"正在抓取详情，共 {len(urls)} 篇")
 
         # 记录开始获取详情
-        await task.log_step(
+        await self._task.log_step(
             3,
             "获取笔记详情",
             {
@@ -211,7 +209,7 @@ class XiaohongshuTrendAgent:
 
             if detail and title:
                 # 成功获取详情
-                await task.log_step(
+                await self._task.log_step(
                     3,
                     f"解析笔记 [{i+1}/{len(notes)}]",
                     {
@@ -227,7 +225,7 @@ class XiaohongshuTrendAgent:
                 )
             else:
                 # 获取详情失败
-                await task.log_step(
+                await self._task.log_step(
                     3,
                     f"解析笔记 [{i+1}/{len(notes)}]",
                     {
@@ -286,32 +284,30 @@ class XiaohongshuTrendAgent:
 
         return "\n\n".join(context_parts)
 
-    async def execute(self, task: Task) -> str:
+    async def execute(self, keywords) -> str:
         """
         执行趋势分析任务 - 统一入口方法
 
         Args:
-            task: 已创建的任务对象
+            keywords
 
         Returns:
             分析结果
         """
-        # 设置 task，以便后续使用 ConnectorService
-        self._task = task
 
         try:
-            if not self.keywords:
+            if not keywords:
                 # 记录错误参数
-                await task.fail("无输入，请输入有效关键字重试", 0)
-                await task.save()
+                await self._task.fail("无输入，请输入有效关键字重试", 0)
+                await self._task.save()
                 return "无输入，请输入有效关键字重试"
 
             # 记录初始参数
-            await task.log_step(0, "任务初始化",
-                              {"keywords": self.keywords},
-                              {"task_id": str(task.id), "source": self._source})
-            task.progress = 10
-            await task.save()
+            await self._task.log_step(0, "任务初始化",
+                              {"keywords": keywords},
+                              {"task_id": str(self._task.id), "source": self._source})
+            self._task.progress = 10
+            await self._task.save()
 
             # === AI Native 登录检查 ===
             # 在执行任务前，先检查平台登录状态
@@ -321,56 +317,52 @@ class XiaohongshuTrendAgent:
 
             # 调用公共方法检查登录状态
             # 方法内部会自动处理 session、browser、context 的创建和清理
-            is_logged_in, resource_url = await connector.check_login_status(
+            login_res = await connector.login_with_qrcode(
                 source=self._source,
                 source_id=self._source_id
             )
-
-            if not is_logged_in:
+            logger.info(f"login_res --> {login_res}")
+            if not login_res.get("is_logged_in"):
                 # 未登录，暂停任务并保存登录信息
-                await task.waiting_login({
-                    "platform": "xiaohongshu",
-                    "context_id": "",  # 登录时会获取
-                    "resource_url": resource_url
-                })
+                await self._task.waiting_login(login_res)
                 logger.info(f"[xhs_trend] 任务 {task.id} 等待登录")
                 return "等待登录"
 
             # Step 1: 关键词裂变
-            search_keywords = await self._generate_keywords()
-            await task.log_step(1, "关键词裂变",
-                              {"core_keyword": self.keywords},
+            search_keywords = await self._generate_keywords(keywords[0] if isinstance(keywords, list) else keywords)
+            await self._task.log_step(1, "关键词裂变",
+                              {"core_keyword": keywords},
                               {"keywords": search_keywords})
-            task.progress = 25
-            await task.save()
+            self._task.progress = 25
+            await self._task.save()
 
             # 使用 async with ConnectorService
             async with ConnectorService(self._playwright, self._source, self._source_id, self._task) as connector_service:
                 # Step 2: 搜索并去重
-                top_notes = await self._run_search(search_keywords, task, connector_service)
+                top_notes = await self._run_search(search_keywords, connector_service)
                 if not top_notes:
-                    await task.fail("未搜索到有效数据", task.progress)
+                    await self._task.fail("未搜索到有效数据", self._task.progress)
                     return ""
 
-                task.progress = 50
-                await task.save()
+                self._task.progress = 50
+                await self._task.save()
 
                 # Step 3: 获取详情
-                context_data = await self._fetch_details(top_notes, task, connector_service)
+                context_data = await self._fetch_details(top_notes, connector_service)
 
                 # 记录获取详情完成
-                await task.log_step(3, "获取笔记详情",
+                await self._task.log_step(3, "获取笔记详情",
                                   {"note_count": len(top_notes)},
                                   {
                                     "status": f"详情获取完成，共 {len(context_data)} 字符",
                                     "context_length": len(context_data)
                                   })
-                task.progress = 70
-                await task.save()
+                self._task.progress = 70
+                await self._task.save()
 
                 # Step 4: Agent 分析
                 prompt = f"""
-                任务核心词：{self.keywords}
+                任务核心词：{keywords}
 
                 以下是我为你采集到的最新数据：
                 {context_data}
@@ -383,60 +375,22 @@ class XiaohongshuTrendAgent:
                 analysis_result = await self.agent.arun(prompt)
                 analysis = analysis_result.content
 
-                await task.log_step(4, "Agent分析",
+                await self._task.log_step(4, "Agent分析",
                                   {"data_size": len(context_data)},
                                   {"analysis_length": len(analysis)})
-                task.progress = 95
-                await task.save()
+                self._task.progress = 95
+                await self._task.save()
 
                 # AI Native: Agent 的分析结果本身就是自然语言，直接存储
                 # 无需额外格式化，LLM 生成的分析结果就是最适合 AI 阅读的格式
-                await task.complete({"analysis": analysis})
+                await self._task.complete({"output": analysis})
                 return analysis
 
         except Exception as e:
-            logger.error(f"趋势分析失败: {e}")
-            await task.fail(str(e), task.progress)
+            import traceback
+            logger.error(f"趋势分析失败: {traceback.format_exc()}")
+            await self._task.fail(str(e), self._task.progress)
             raise
-
-    async def analyze_trends_stream(self):
-        """
-        流式任务入口 - 编排逻辑
-        """
-        yield "🚀 [Step 1] 正在进行关键词裂变...\n"
-        search_keywords = await self._generate_keywords()
-        yield f" -> 裂变结果: {search_keywords}\n"
-
-        # 使用 async with ConnectorService
-        async with ConnectorService(self._playwright, self._source, self._source_id, self._task) as connector_service:
-            yield "🔍 [Step 2] 正在多线程并发搜索...\n"
-            top_notes = await self._run_search_no_task(search_keywords, connector_service)
-            yield f" -> 筛选出 {len(top_notes)} 篇头部笔记\n"
-
-            if not top_notes:
-                yield "❌ 未搜索到有效数据，任务终止。"
-                return
-
-            yield "📖 [Step 3] 正在阅读笔记详情...\n"
-            context_data = await self._fetch_details_no_task(top_notes, connector_service)
-
-            yield "🧠 [Step 4] 数据准备完毕，Agent 开始深度分析...\n\n"
-
-            # === 核心：把准备好的数据喂给 Agent ===
-            prompt = f"""
-            任务核心词：{self.keywords}
-
-            以下是我为你采集到的最新数据：
-            {context_data}
-
-            请根据 instructions 开始分析。
-
-            **重要提醒**：在输出分析和建议时，必须为每个观点提供证据链条，引用具体笔记的完整URL（full_url）。
-            """
-
-            async for chunk in self.agent.arun(prompt, stream=True):
-                if chunk and chunk.content:
-                    yield chunk.content
 
     async def _run_search_no_task(self, keywords: List[str], connector_service, limit: int = 10) -> List[Dict]:
         """前置工作 Step 2: 执行搜索 (不带 task，用于 stream 版本)"""
@@ -567,7 +521,7 @@ async def main():
                 source_id=source_id,
                 task_type="trend_analysis"
             )
-            await task.start()
+            await self._task.start()
 
             keywords = ["SKG", "健康穿戴", "按摩仪"]
             keywords = ["后端开发", "Agent"]
@@ -576,7 +530,6 @@ async def main():
                 source_id=source_id,
                 source=source,
                 playwright=p,
-                keywords=keywords,
                 task=task
             )
 
@@ -585,7 +538,7 @@ async def main():
             print(f"[Task ID]: {task.id}")
 
             # 执行分析
-            analysis = await analyzer.execute(task=task)
+            analysis = await analyzer.execute(keywords=keywords)
             print(analysis, flush=True)
 
             end_time = datetime.now()

@@ -83,7 +83,7 @@
         /* ========== LAYOUT ========== */
         .app-container {
             display: grid;
-            grid-template-columns: 80px 1fr 400px;
+            grid-template-columns: 250px 1fr;  /* 两列布局：Agents Sidebar | Tasks+Console */
             grid-template-rows: 60px 1fr;
             height: 100vh;
             overflow: hidden;
@@ -162,87 +162,98 @@
             border-color: var(--text-secondary);
         }
 
-        /* ========== LEFT SIDEBAR (CHANNELS) ========== */
-        .channels-sidebar {
+        /* ========== LEFT SIDEBAR (AGENTS) ========== */
+        .agents-sidebar {
             background: var(--bg-secondary);
             border-right: 1px solid var(--border-primary);
             display: flex;
             flex-direction: column;
-            align-items: center;
-            padding: var(--space-lg) 0;
+            overflow: hidden;
+        }
+
+        .agents-sidebar-header {
+            padding: var(--space-lg);
+            border-bottom: 1px solid var(--border-primary);
+        }
+
+        .agents-sidebar-header h3 {
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .agents-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-md);
+            display: flex;
+            flex-direction: column;
             gap: var(--space-sm);
         }
 
-        .sidebar-divider {
-            width: 40px;
-            height: 1px;
-            background: var(--border-primary);
-            margin: var(--space-sm) 0;
-        }
-
-        .channel-item {
-            width: 56px;
-            height: 56px;
+        /* Agent 列表项样式 */
+        .agent-list-item {
             display: flex;
             align-items: center;
-            justify-content: center;
-            border-radius: 12px;
+            gap: var(--space-md);
+            padding: var(--space-md);
             background: var(--bg-tertiary);
             border: 1px solid var(--border-primary);
+            border-radius: 8px;
             cursor: pointer;
             transition: var(--transition-base);
-            position: relative;
         }
 
-        .channel-item:hover {
+        .agent-list-item:hover {
             background: var(--bg-hover);
             border-color: var(--border-secondary);
-            transform: translateY(-2px);
+            transform: translateX(2px);
         }
 
-        .channel-item.active {
+        .agent-list-item.active {
             background: var(--accent-glow);
             border-color: var(--accent-primary);
             box-shadow: var(--shadow-glow);
         }
 
-        .channel-item i {
-            font-size: 1.5rem;
-            color: var(--text-secondary);
-            transition: var(--transition-base);
+        .agent-list-item-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            flex-shrink: 0;
         }
 
-        .channel-item:hover i,
-        .channel-item.active i {
+        .agent-list-item-icon i {
+            font-size: 1.25rem;
             color: var(--accent-primary);
         }
 
-        .channel-tooltip {
-            position: absolute;
-            left: 70px;
-            background: var(--bg-elevated);
+        .agent-list-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .agent-list-item-name {
+            font-weight: 600;
+            font-size: 0.9rem;
             color: var(--text-primary);
-            padding: var(--space-sm) var(--space-md);
-            border-radius: 6px;
-            font-size: 0.875rem;
             white-space: nowrap;
-            opacity: 0;
-            pointer-events: none;
-            transition: var(--transition-fast);
-            box-shadow: var(--shadow-lg);
-            border: 1px solid var(--border-primary);
-            z-index: 100;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .channel-item:hover .channel-tooltip {
-            opacity: 1;
-        }
-
-        /* ========== MIDDLE AREA (AGENT GRID) ========== */
-        .agents-area {
-            background: var(--bg-primary);
-            padding: var(--space-xl);
-            overflow-y: auto;
+        .agent-list-item-desc {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .section-title {
@@ -499,244 +510,281 @@
             font-size: 0.8125rem;
         }
 
-        /* ========== PLATFORM LOGIN MODULE ========== */
-        .platform-login-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: var(--space-lg);
-            margin-top: var(--space-lg);
-        }
-
-        .platform-login-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 12px;
-            padding: var(--space-lg);
-            transition: var(--transition-base);
-        }
-
-        .platform-login-card:hover {
-            border-color: var(--border-secondary);
-        }
-
-        .platform-login-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: var(--space-md);
-            padding-bottom: var(--space-md);
-            border-bottom: 1px solid var(--border-primary);
-        }
-
-        .platform-login-title {
-            display: flex;
-            align-items: center;
-            gap: var(--space-md);
-            font-family: 'Chakra Petch', sans-serif;
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .platform-login-title i {
-            font-size: 1.5rem;
-            color: var(--accent-primary);
-        }
-
-        .login-status-badge {
-            padding: var(--space-xs) var(--space-sm);
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .login-status-badge.not_logged_in {
-            background: rgba(239, 68, 68, 0.2);
-            color: var(--error);
-        }
-
-        .login-status-badge.logged_in {
-            background: rgba(16, 185, 129, 0.2);
-            color: var(--success);
-        }
-
-        .login-methods {
-            display: flex;
-            flex-direction: column;
-            gap: var(--space-md);
-        }
-
-        .login-method-tabs {
-            display: flex;
-            gap: var(--space-sm);
-            margin-bottom: var(--space-md);
-        }
-
-        .login-method-tab {
-            flex: 1;
-            padding: var(--space-sm);
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-primary);
-            border-radius: 6px;
-            color: var(--text-secondary);
-            font-size: 0.875rem;
-            cursor: pointer;
-            transition: var(--transition-fast);
-            text-align: center;
-        }
-
-        .login-method-tab:hover {
-            background: var(--bg-hover);
-        }
-
-        .login-method-tab.active {
-            background: var(--accent-glow);
-            border-color: var(--accent-primary);
-            color: var(--accent-primary);
-        }
-
-        .qrcode-login-container {
-            text-align: center;
-        }
-
-        .qrcode-image {
-            width: 200px;
-            height: 200px;
-            margin: var(--space-md) auto;
-            background: var(--bg-primary);
-            border: 2px solid var(--border-primary);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .qrcode-image img {
-            max-width: 100%;
-            max-height: 100%;
-            border-radius: 6px;
-        }
-
-        .qrcode-image .placeholder {
-            color: var(--text-muted);
-            font-size: 0.875rem;
-        }
-
-        .resource-url-link {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--space-sm);
-            padding: var(--space-sm) var(--space-md);
-            background: var(--accent-glow);
-            border: 1px solid var(--accent-primary);
-            border-radius: 6px;
-            color: var(--accent-primary);
-            text-decoration: none;
-            font-size: 0.875rem;
-            margin-bottom: var(--space-md);
-            transition: var(--transition-fast);
-        }
-
-        .resource-url-link:hover {
-            background: var(--accent-strong);
-        }
-
-        .confirm-login-btn {
-            width: 100%;
-            padding: var(--space-md);
-            background: var(--success);
-            color: var(--bg-primary);
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.9375rem;
-            cursor: pointer;
-            transition: var(--transition-base);
-        }
-
-        .confirm-login-btn:hover {
-            opacity: 0.9;
-            transform: translateY(-2px);
-        }
-
-        .confirm-login-btn:disabled {
-            background: var(--border-secondary);
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .cookie-login-container {
-            display: flex;
-            flex-direction: column;
-            gap: var(--space-md);
-        }
-
-        .cookie-textarea {
-            width: 100%;
-            min-height: 120px;
-            padding: var(--space-md);
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8125rem;
-            resize: vertical;
-        }
-
-        .cookie-textarea:focus {
-            outline: none;
-            border-color: var(--accent-primary);
-            box-shadow: 0 0 0 3px var(--accent-glow);
-        }
-
-        .cookie-login-btn {
-            width: 100%;
-            padding: var(--space-md);
-            background: var(--accent-primary);
-            color: var(--bg-primary);
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 0.9375rem;
-            cursor: pointer;
-            transition: var(--transition-base);
-        }
-
-        .cookie-login-btn:hover {
-            background: var(--accent-hover);
-        }
-
-        .cookie-login-btn:disabled {
-            background: var(--border-secondary);
-            cursor: not-allowed;
-        }
-
-        .view-mode-indicator {
-            display: flex;
-            align-items: center;
-            gap: var(--space-md);
-            padding: var(--space-sm) var(--space-md);
-            background: var(--bg-tertiary);
-            border-radius: 6px;
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-        }
-
-        .view-mode-indicator i {
-            color: var(--accent-primary);
-        }
-
-        /* ========== RIGHT PANEL (EXECUTION CONFIG) ========== */
-
-        /* ========== RIGHT PANEL (EXECUTION CONFIG) ========== */
+        /* ========== RIGHT PANEL (TASKS + CONSOLE) ========== */
         .config-panel {
             background: var(--bg-secondary);
             border-left: 1px solid var(--border-primary);
             display: flex;
             flex-direction: column;
             overflow: hidden;
+        }
+
+        /* ========== TASK LIST SECTION ========== */
+        .tasks-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid var(--border-primary);
+            overflow: hidden;
+            min-height: 300px;
+        }
+
+        .section-header {
+            padding: var(--space-md) var(--space-lg);
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-header h3 {
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--text-primary);
+        }
+
+        .section-actions {
+            display: flex;
+            gap: var(--space-sm);
+        }
+
+        .btn-primary,
+        .btn-secondary,
+        .btn-icon {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-xs);
+            padding: var(--space-sm) var(--space-md);
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: var(--transition-fast);
+            border: 1px solid transparent;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border-color: var(--border-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+        }
+
+        .task-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-md);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-sm);
+        }
+
+        .task-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 8px;
+            padding: var(--space-md);
+            cursor: pointer;
+            transition: var(--transition-base);
+        }
+
+        .task-card:hover {
+            border-color: var(--border-secondary);
+            transform: translateX(2px);
+        }
+
+        .task-card.active {
+            background: var(--accent-glow);
+            border-color: var(--accent-primary);
+            box-shadow: var(--shadow-glow);
+        }
+
+        .task-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: var(--space-sm);
+        }
+
+        .task-card-status {
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+
+        .task-card-status.running i {
+            color: var(--accent-primary);
+        }
+
+        .task-card-status.completed i {
+            color: var(--success);
+        }
+
+        .task-card-status.failed i {
+            color: var(--error);
+        }
+
+        .task-card-time {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .btn-retry {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-primary);
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            transition: var(--transition-base);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .btn-retry:hover {
+            background: var(--accent-primary);
+            color: white;
+            border-color: var(--accent-primary);
+        }
+
+        .btn-retry:active {
+            transform: scale(0.95);
+        }
+
+        .task-progress {
+            height: 4px;
+            background: var(--bg-primary);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: var(--space-sm);
+        }
+
+        .task-progress-fill {
+            height: 100%;
+            background: var(--accent-primary);
+            transition: width 0.3s ease;
+        }
+
+        .task-summary {
+            font-size: 0.8125rem;
+            color: var(--text-secondary);
+            margin-top: var(--space-sm);
+        }
+
+        .empty-tasks {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            padding: var(--space-2xl);
+        }
+
+        .empty-tasks i {
+            font-size: 3rem;
+            margin-bottom: var(--space-md);
+            opacity: 0.3;
+        }
+
+        /* ========== MODAL ========== */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 1000;
+            display: none;
+        }
+
+        .modal.active {
+            display: block;
+        }
+
+        .modal-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            position: relative;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            margin: 10vh auto;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-primary);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .modal-header {
+            padding: var(--space-lg);
+            border-bottom: 1px solid var(--border-primary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-header h3 {
+            font-family: 'Chakra Petch', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin: 0;
+            color: var(--text-primary);
+        }
+
+        .modal-close {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1.25rem;
+            padding: var(--space-xs);
+            transition: var(--transition-fast);
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: var(--space-lg);
+        }
+
+        .modal-footer {
+            padding: var(--space-lg);
+            border-top: 1px solid var(--border-primary);
+            display: flex;
+            gap: var(--space-md);
+            justify-content: flex-end;
         }
 
         .panel-placeholder {
@@ -1095,99 +1143,233 @@
             left: 0;
             right: 0;
             bottom: 0;
-            background: var(--bg-primary);
+            background: linear-gradient(135deg, var(--bg-primary) 0%, #0f172a 50%, var(--bg-secondary) 100%);
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 1000;
+            overflow: hidden;
+        }
+
+        /* Animated background particles */
+        .login-screen::before {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(6, 182, 212, 0.1) 0%, transparent 70%);
+            border-radius: 50%;
+            top: -250px;
+            right: -250px;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .login-screen::after {
+            content: '';
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(6, 182, 212, 0.08) 0%, transparent 70%);
+            border-radius: 50%;
+            bottom: -200px;
+            left: -200px;
+            animation: float 15s ease-in-out infinite reverse;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            33% { transform: translate(30px, -30px) rotate(120deg); }
+            66% { transform: translate(-20px, 20px) rotate(240deg); }
         }
 
         .login-card {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-primary);
-            border-radius: 16px;
-            padding: var(--space-2xl);
+            background: rgba(17, 24, 39, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(6, 182, 212, 0.2);
+            border-radius: 24px;
+            padding: 48px;
             width: 100%;
-            max-width: 420px;
-            box-shadow: var(--shadow-lg);
+            max-width: 440px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                        0 0 0 1px rgba(6, 182, 212, 0.1),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+            position: relative;
+            z-index: 1;
+            animation: slideUp 0.6s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Decorative top border */
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60%;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, var(--accent-primary), transparent);
+            border-radius: 0 0 3px 3px;
         }
 
         .login-logo {
             text-align: center;
-            margin-bottom: var(--space-xl);
+            margin-bottom: 32px;
+            position: relative;
+        }
+
+        .login-logo-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover));
+            border-radius: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 30px rgba(6, 182, 212, 0.3);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 10px 30px rgba(6, 182, 212, 0.3); }
+            50% { transform: scale(1.05); box-shadow: 0 15px 40px rgba(6, 182, 212, 0.4); }
         }
 
         .login-logo i {
-            font-size: 4rem;
-            color: var(--accent-primary);
-            margin-bottom: var(--space-md);
+            font-size: 2.5rem;
+            color: white;
         }
 
         .login-title {
             font-family: 'Chakra Petch', sans-serif;
-            font-size: 2rem;
+            font-size: 2.5rem;
             font-weight: 700;
             text-align: center;
-            margin-bottom: var(--space-sm);
-            color: var(--text-primary);
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-primary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.1em;
         }
 
         .login-subtitle {
             text-align: center;
             color: var(--text-secondary);
-            margin-bottom: var(--space-xl);
+            margin-bottom: 40px;
+            font-size: 1rem;
+            font-weight: 400;
         }
 
         .login-form {
             display: flex;
             flex-direction: column;
-            gap: var(--space-lg);
+            gap: 20px;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-wrapper i {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--accent-primary);
+            font-size: 1.1rem;
+            transition: var(--transition-base);
         }
 
         .login-input {
             width: 100%;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-primary);
-            border-radius: 8px;
-            padding: var(--space-md);
+            background: rgba(31, 41, 55, 0.6);
+            border: 2px solid rgba(55, 65, 81, 0.5);
+            border-radius: 12px;
+            padding: 16px 16px 16px 48px;
             color: var(--text-primary);
             font-size: 1rem;
-            transition: var(--transition-fast);
+            transition: var(--transition-base);
+            font-weight: 500;
         }
 
         .login-input:focus {
             outline: none;
             border-color: var(--accent-primary);
-            box-shadow: 0 0 0 3px var(--accent-glow);
+            background: rgba(31, 41, 55, 0.8);
+            box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.1);
+        }
+
+        .login-input:focus + i {
+            color: var(--accent-hover);
         }
 
         .login-input::placeholder {
             color: var(--text-muted);
+            font-weight: 400;
         }
 
         .login-button {
             width: 100%;
-            background: var(--accent-primary);
-            color: var(--bg-primary);
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-hover));
+            color: white;
             border: none;
-            padding: var(--space-md);
-            border-radius: 8px;
+            padding: 16px;
+            border-radius: 12px;
             font-weight: 600;
-            font-size: 1rem;
+            font-size: 1.05rem;
             cursor: pointer;
             transition: var(--transition-base);
             display: flex;
             align-items: center;
             justify-content: center;
             gap: var(--space-sm);
+            box-shadow: 0 4px 15px rgba(6, 182, 212, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .login-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .login-button:hover::before {
+            left: 100%;
         }
 
         .login-button:hover {
-            background: var(--accent-hover);
             transform: translateY(-2px);
-            box-shadow: var(--shadow-glow);
+            box-shadow: 0 8px 25px rgba(6, 182, 212, 0.4);
+        }
+
+        .login-button:active {
+            transform: translateY(0);
+        }
+
+        .login-button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
         }
 
         .login-button .spinner {
@@ -1195,13 +1377,43 @@
         }
 
         .login-error {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid var(--error);
-            color: var(--error);
-            padding: var(--space-md);
-            border-radius: 8px;
-            font-size: 0.875rem;
+            background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(220, 38, 38, 0.15));
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 14px 16px;
+            border-radius: 12px;
+            font-size: 0.9rem;
             text-align: center;
+            animation: shake 0.5s ease-in-out;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .login-error::before {
+            content: '⚠️';
+            font-size: 1.2rem;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        /* Footer info */
+        .login-footer {
+            margin-top: 32px;
+            text-align: center;
+            padding-top: 24px;
+            border-top: 1px solid rgba(55, 65, 81, 0.5);
+        }
+
+        .login-footer p {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            line-height: 1.6;
         }
 
         .hidden {
@@ -1266,26 +1478,35 @@
     <div id="loginScreen" class="login-screen">
         <div class="login-card">
             <div class="login-logo">
-                <i class="fas fa-crosshairs"></i>
+                <div class="login-logo-icon">
+                    <i class="fas fa-crosshairs"></i>
+                </div>
             </div>
             <h1 class="login-title">Micro-Sniper</h1>
-            <p class="login-subtitle">Multi-Platform Agent Hub</p>
+            <p class="login-subtitle">Enter your API key to access the dashboard</p>
 
             <form class="login-form" onsubmit="handleLogin(event)">
-                <input
-                    type="password"
-                    class="login-input"
-                    id="apiKeyInput"
-                    placeholder="Enter your API key"
-                    required
-                >
-                <button type="submit" class="login-button" id="loginButton">
+                <div class="input-wrapper">
+                    <input
+                        type="password"
+                        class="login-input"
+                        id="apiKeyInput"
+                        placeholder="Enter your API key"
+                        required
+                    >
                     <i class="fas fa-key"></i>
+                </div>
+                <button type="submit" class="login-button" id="loginButton">
+                    <i class="fas fa-rocket"></i>
                     <span>Access Dashboard</span>
                 </button>
             </form>
 
             <div id="loginError" class="login-error hidden"></div>
+
+            <div class="login-footer">
+                <p>Secure access powered by Micro-Sniper</p>
+            </div>
         </div>
     </div>
 
@@ -1309,58 +1530,52 @@
             </div>
         </header>
 
-        <!-- Channels Sidebar -->
-        <aside class="channels-sidebar" id="channelsList">
-            <!-- Channels will be rendered here -->
+        <!-- Agents Sidebar (左侧) -->
+        <aside class="agents-sidebar">
+            <div class="agents-sidebar-header">
+                <h3>Agents</h3>
+            </div>
+            <div class="agents-list" id="agentsList">
+                <!-- Agents will be rendered here -->
+            </div>
         </aside>
 
-        <!-- Agents Area -->
-        <main class="agents-area" id="mainArea">
-            <!-- Agent View -->
-            <div id="agentView">
-                <div class="section-title">
-                    <i class="fas fa-robot"></i>
-                    <span id="currentChannelTitle">All Agents</span>
-                </div>
-                <div class="agents-grid" id="agentsGrid">
-                    <!-- Agents will be rendered here -->
-                </div>
-            </div>
-
-            <!-- Platform Login View (Hidden by default) -->
-            <div id="loginView" class="hidden">
-                <div class="section-title">
-                    <i class="fas fa-sign-in-alt"></i>
-                    <span>平台登录管理</span>
-                </div>
-
-                <div class="platform-login-grid" id="platformLoginGrid">
-                    <!-- Platform login cards will be rendered here -->
-                </div>
-            </div>
-        </main>
-
-        <!-- Config Panel -->
+        <!-- Config Panel (右侧：任务列表 + Console) -->
         <aside class="config-panel" id="configPanel">
+            <!-- 未选择 Agent 时的占位符 -->
             <div class="panel-placeholder" id="panelPlaceholder">
                 <i class="fas fa-mouse-pointer"></i>
-                <p>Select an agent to configure</p>
+                <p>选择一个 Agent 查看任务</p>
             </div>
-            <div class="panel-content hidden" id="panelContent">
-                <div class="panel-header">
-                    <h3 class="panel-title" id="panelAgentName">Agent Name</h3>
-                    <p class="panel-subtitle" id="panelAgentDesc">Agent description</p>
+
+            <!-- 已选择 Agent 时显示的内容 -->
+            <div class="panel-content hidden" id="panelContent" style="display: flex; flex-direction: column; height: 100%;">
+                <!-- 上半部分：任务列表 -->
+                <div class="tasks-section">
+                    <div class="section-header">
+                        <h3 id="taskListTitle">任务列表</h3>
+                        <div class="section-actions">
+                            <button class="btn-secondary" onclick="showQuickRunMenu()">
+                                <i class="fas fa-bolt"></i>
+                                快速启动
+                            </button>
+                            <button class="btn-primary" onclick="showNewTaskModal()">
+                                <i class="fas fa-plus"></i>
+                                新建任务
+                            </button>
+                        </div>
+                    </div>
+                    <div class="task-list" id="taskList">
+                        <!-- Tasks will be rendered here -->
+                    </div>
                 </div>
-                <div class="panel-body">
-                    <form class="dynamic-form" id="dynamicForm" onsubmit="handleRunTask(event)">
-                        <!-- Form fields will be rendered here -->
-                    </form>
-                </div>
+
+                <!-- 下半部分：Console (保持不变) -->
                 <div class="console-section">
                     <div class="console-header">
                         <span class="console-title">
                             <i class="fas fa-terminal"></i>
-                            Console
+                            <span id="consoleTitle">Console</span>
                         </span>
                         <button class="console-clear" onclick="clearConsole()">
                             <i class="fas fa-trash"></i>
@@ -1373,6 +1588,31 @@
                 </div>
             </div>
         </aside>
+    </div>
+
+    <!-- 新建任务 Modal -->
+    <div class="modal" id="newTaskModal">
+        <div class="modal-overlay" onclick="closeModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">新建任务</h3>
+                <button class="modal-close" onclick="closeModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form class="dynamic-form" id="modalForm" onsubmit="submitNewTask(event)">
+                    <!-- Form fields will be rendered here -->
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">取消</button>
+                <button class="btn-primary" onclick="document.getElementById('modalForm').dispatchEvent(new Event('submit'))">
+                    <i class="fas fa-play"></i>
+                    运行任务
+                </button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1389,20 +1629,23 @@
             logs: '/sniper/task'
         };
 
+        // 轮询配置
+        const POLLING_CONFIG = {
+            TASK_STATUS_INTERVAL: 6000  // 任务状态轮询间隔（毫秒）
+        };
+
         // =====================================================
         // STATE MANAGEMENT
         // =====================================================
 
         let state = {
             apiKey: localStorage.getItem('microsniper_api_key') || '',
-            selectedChannel: 'all',
-            selectedAgent: null,
-            isRunning: false,
-            agents: [],
-            channels: [],
-            currentTaskId: null,
-            pollInterval: null,
-            lastParams: null  // 保存最后一次提交的参数
+            selectedAgentId: null,  // 当前选中的 Agent ID
+            selectedTaskId: null,   // 当前选中的任务 ID
+            agents: [],             // 所有 Agent 列表
+            tasksByAgent: {},       // { agentId: [tasks] }
+            pollIntervals: {},      // { taskId: interval } 支持多任务轮询
+            isModalOpen: false      // Modal 是否打开
         };
 
         // =====================================================
@@ -1432,13 +1675,33 @@
                 const response = await apiCall(API_ENDPOINTS.agents);
                 if (response.code === 0) {
                     state.agents = response.data.agents;
-                    extractChannels();
-                    renderChannels();
-                    renderAgents();
+                    renderAgentList();
                 }
             } catch (error) {
                 console.error('Failed to fetch agents:', error);
                 addConsoleLog('error', `Failed to load agents: ${error.message}`);
+            }
+        }
+
+        async function fetchAgentTasks(agentId) {
+            try {
+                const response = await apiCall('/sniper/tasks', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        task_type: agentId,
+                        limit: 50
+                    })
+                });
+
+                if (response.code === 0) {
+                    state.tasksByAgent[agentId] = response.data.tasks;
+                    return response.data.tasks;
+                }
+                return [];
+            } catch (error) {
+                console.error('Failed to fetch tasks:', error);
+                addConsoleLog('error', `Failed to load tasks: ${error.message}`);
+                return [];
             }
         }
 
@@ -1455,10 +1718,10 @@
                 });
 
                 if (response.code === 0) {
-                    state.currentTaskId = response.data.task_id;
-                    addConsoleLog('success', `Task created: ${state.currentTaskId}`);
-                    startTaskPolling(state.currentTaskId);
-                    return state.currentTaskId;
+                    const taskId = response.data.task_id;
+                    addConsoleLog('success', `Task created: ${taskId}`);
+                    startTaskPolling(taskId);
+                    return taskId;
                 } else {
                     throw new Error(response.message || 'Execution failed');
                 }
@@ -1481,81 +1744,91 @@
         }
 
         function startTaskPolling(taskId) {
-            if (state.pollInterval) {
-                clearInterval(state.pollInterval);
+            // 如果已经在轮询这个任务，不要重复启动
+            if (state.pollIntervals[taskId]) {
+                return;
             }
 
-            // Track the last log index to avoid duplicate logs
-            let lastLogCount = 0;
+            // 跟踪每个任务的日志计数，避免重复日志
+            const taskState = {
+                lastLogCount: 0,
+                lastLoggedProgress: 0
+            };
 
-            state.pollInterval = setInterval(async () => {
+            state.pollIntervals[taskId] = setInterval(async () => {
+                // 只在当前选中的任务时更新 UI
+                const isSelected = state.selectedTaskId === taskId;
+
                 // Fetch task status
                 const taskData = await fetchTaskStatus(taskId);
 
-                // Fetch task logs
-                const logs = await fetchTaskLogs(taskId);
+                // 更新任务列表中的进度
+                if (taskData && isSelected) {
+                    // 更新本地缓存中的任务数据
+                    for (const agentId in state.tasksByAgent) {
+                        const task = state.tasksByAgent[agentId].find(t => (t.task_id || t.id) === taskId);
+                        if (task) {
+                            task.status = taskData.status;
+                            task.progress = taskData.progress;
+                            task.result = taskData.result;
+                            task.error = taskData.error;
+                            task.logs = taskData.logs;  // 更新日志，确保显示所有日志
+                            break;
+                        }
+                    }
 
-                // Display new logs
-                if (logs && logs.length > lastLogCount) {
-                    const newLogs = logs.slice(lastLogCount);
-                    newLogs.forEach(log => {
-                        const logType = log.level === 'ERROR' ? 'error' :
-                                     log.level === 'SUCCESS' ? 'success' :
-                                     log.level === 'WARNING' ? 'warning' : 'info';
-                        addConsoleLog(logType, log.message || JSON.stringify(log));
-                    });
-                    lastLogCount = logs.length;
+                    // 刷新任务列表
+                    renderTaskList();
                 }
 
-                // Check task status and stop polling if completed/failed
-                if (taskData) {
-                    if (taskData.status === 'completed') {
-                        addConsoleLog('success', '✓ Task completed successfully!');
-                        stopTaskPolling();
-                        state.isRunning = false;
-                        renderConfigPanel();
-                        return; // Stop execution
-                    } else if (taskData.status === 'failed') {
-                        addConsoleLog('error', `✗ Task failed: ${taskData.error || 'Unknown error'}`);
-                        stopTaskPolling();
-                        state.isRunning = false;
-                        renderConfigPanel();
-                        return; // Stop execution
-                    } else if (taskData.status === 'waiting_login') {
-                        // 任务等待登录
-                        addConsoleLog('warning', '⚠️ 需要登录平台账号');
-                        stopTaskPolling();
+                // Fetch task logs (仅在选中时显示)
+                if (isSelected) {
+                    const logs = await fetchTaskLogs(taskId);
 
-                        // 从 task.result 中获取登录信息
-                        const loginInfo = taskData.result || {};
-                        if (loginInfo.login_required) {
-                            renderLoginButtons({
-                                platform: loginInfo.platform,
-                                context_id: loginInfo.context_id,
-                                resource_url: loginInfo.resource_url
-                            });
-                        }
+                    // Display new logs
+                    if (logs && logs.length > taskState.lastLogCount) {
+                        const newLogs = logs.slice(taskState.lastLogCount);
+                        newLogs.forEach(log => {
+                            const logType = log.level === 'ERROR' ? 'error' :
+                                         log.level === 'SUCCESS' ? 'success' :
+                                         log.level === 'WARNING' ? 'warning' : 'info';
+                            addConsoleLog(logType, log.message || JSON.stringify(log));
+                        });
+                        taskState.lastLogCount = logs.length;
+                    }
 
-                        // 保持 isRunning 状态，因为任务还没有完成
-                        return;
-                    } else if (taskData.status === 'running') {
-                        if (taskData.progress !== undefined) {
-                            // Only log progress if it changed significantly (every 10%)
-                            const progress = Math.round(taskData.progress);
-                            if (!state.lastLoggedProgress || progress - state.lastLoggedProgress >= 10) {
-                                addConsoleLog('info', `Progress: ${progress}%`);
-                                state.lastLoggedProgress = progress;
+                    // Check task status and stop polling if completed/failed
+                    if (taskData) {
+                        if (taskData.status === 'completed') {
+                            addConsoleLog('success', '✓ Task completed successfully!');
+                            // 注意：不在这里渲染结果，避免与selectTask重复渲染
+                            // 结果会在用户点击任务时通过selectTask渲染
+
+                            stopTaskPolling(taskId);
+                            return; // Stop execution
+                        } else if (taskData.status === 'failed') {
+                            addConsoleLog('error', `✗ Task failed: ${taskData.error || 'Unknown error'}`);
+                            stopTaskPolling(taskId);
+                            return; // Stop execution
+                        } else if (taskData.status === 'running') {
+                            if (taskData.progress !== undefined) {
+                                // Only log progress if it changed significantly (every 10%)
+                                const progress = Math.round(taskData.progress);
+                                if (progress - taskState.lastLoggedProgress >= 10) {
+                                    addConsoleLog('info', `Progress: ${progress}%`);
+                                    taskState.lastLoggedProgress = progress;
+                                }
                             }
                         }
                     }
                 }
-            }, 2000);
+            }, POLLING_CONFIG.TASK_STATUS_INTERVAL);
         }
 
-        function stopTaskPolling() {
-            if (state.pollInterval) {
-                clearInterval(state.pollInterval);
-                state.pollInterval = null;
+        function stopTaskPolling(taskId) {
+            if (state.pollIntervals[taskId]) {
+                clearInterval(state.pollIntervals[taskId]);
+                delete state.pollIntervals[taskId];
             }
         }
 
@@ -1563,32 +1836,36 @@
         // DATA PROCESSING
         // =====================================================
 
-        function extractChannels() {
-            const platformMap = {
-                'xiaohongshu': { name: '小红书', icon: 'fas fa-book', description: 'Xiaohongshu / Little Red Book' },
-                'douyin': { name: '抖音', icon: 'fas fa-music', description: 'Douyin / TikTok China' },
-                'wechat': { name: '微信', icon: 'fab fa-weixin', description: 'WeChat' }
-            };
+        function getStatusIcon(status) {
+            switch (status) {
+                case 'running': return 'fa-spinner fa-spin';
+                case 'completed': return 'fa-check-circle';
+                case 'failed': return 'fa-times-circle';
+                default: return 'fa-circle';
+            }
+        }
 
-            const channels = [
-                { id: 'all', name: 'All Platforms', icon: 'fas fa-th-large', description: 'View all agents' }
-            ];
+        function formatTime(isoString) {
+            const date = new Date(isoString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
 
-            const platforms = new Set();
-            state.agents.forEach(agent => {
-                if (agent.platform && platformMap[agent.platform]) {
-                    platforms.add(agent.platform);
-                }
-            });
+            if (diffMins < 1) return '刚刚';
+            if (diffMins < 60) return `${diffMins}分钟前`;
+            if (diffHours < 24) return `${diffHours}小时前`;
+            if (diffDays < 7) return `${diffDays}天前`;
+            return date.toLocaleDateString('zh-CN');
+        }
 
-            platforms.forEach(platform => {
-                channels.push({
-                    id: platform,
-                    ...platformMap[platform]
-                });
-            });
-
-            state.channels = channels;
+        function getTaskById(taskId) {
+            for (const agentId in state.tasksByAgent) {
+                const task = state.tasksByAgent[agentId].find(t => (t.task_id || t.id) === taskId);
+                if (task) return task;
+            }
+            return null;
         }
 
         function convertParamsToFormSchema(agentParams) {
@@ -1665,21 +1942,34 @@
             errorDiv.classList.add('hidden');
 
             try {
-                // TODO: Replace with actual API validation
-                // const response = await fetch('/identity/api-keys', {
-                //     headers: { 'Authorization': `Bearer ${apiKey}` }
-                // });
+                // 通过请求 task/agents 接口来鉴权
+                const response = await fetch(`${API_BASE}${API_ENDPOINTS.agents}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    }
+                });
 
-                // Simulate validation
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                if (!response.ok) {
+                    throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
+                }
 
-                // Success
+                const data = await response.json();
+
+                // 检查响应码
+                if (data.code !== 0) {
+                    throw new Error(data.message || 'Invalid API key');
+                }
+
+                // 鉴权成功，保存 API key 并进入主界面
                 state.apiKey = apiKey;
                 localStorage.setItem('microsniper_api_key', apiKey);
                 showMainApp();
 
             } catch (error) {
-                errorDiv.textContent = 'Invalid API key. Please try again.';
+                console.error('Login error:', error);
+                errorDiv.textContent = error.message || 'Invalid API key. Please try again.';
                 errorDiv.classList.remove('hidden');
                 button.disabled = false;
                 button.innerHTML = '<i class="fas fa-key"></i> <span>Access Dashboard</span>';
@@ -1714,137 +2004,87 @@
         // RENDERING
         // =====================================================
 
-        function renderChannels() {
-            const container = document.getElementById('channelsList');
+        function renderAgentList() {
+            const container = document.getElementById('agentsList');
 
-            // Render channels
-            const channelsHtml = state.channels.map(channel => `
-                <div class="channel-item ${state.selectedChannel === channel.id ? 'active' : ''}"
-                     onclick="selectChannel('${channel.id}')">
-                    <i class="${channel.icon}"></i>
-                    <div class="channel-tooltip">${channel.name}</div>
-                </div>
-            `).join('');
-
-            // Add divider and platform login button
-            const loginSectionHtml = `
-                <div class="sidebar-divider"></div>
-                <div class="channel-item" onclick="switchToLoginView()">
-                    <i class="fas fa-sign-in-alt"></i>
-                    <div class="channel-tooltip">平台登录</div>
-                </div>
-            `;
-
-            container.innerHTML = channelsHtml + loginSectionHtml;
-        }
-
-        function renderAgents() {
-            const container = document.getElementById('agentsGrid');
-            const titleEl = document.getElementById('currentChannelTitle');
-
-            // Filter agents by channel
-            const filteredAgents = state.selectedChannel === 'all'
-                ? state.agents
-                : state.agents.filter(agent => agent.platform === state.selectedChannel);
-
-            // Update title
-            const currentChannel = state.channels.find(c => c.id === state.selectedChannel);
-            titleEl.textContent = currentChannel ? currentChannel.name : 'All Agents';
-
-            // Render agents
-            if (filteredAgents.length === 0) {
+            if (state.agents.length === 0) {
                 container.innerHTML = `
-                    <div class="empty-state" style="grid-column: 1 / -1;">
+                    <div class="empty-tasks">
                         <i class="fas fa-robot"></i>
-                        <p>No agents found for this platform</p>
+                        <p>暂无 Agent</p>
                     </div>
                 `;
                 return;
             }
 
-            container.innerHTML = filteredAgents.map(agent => `
-                <div class="agent-card ${state.selectedAgent?.id === agent.id ? 'selected' : ''}"
+            container.innerHTML = state.agents.map(agent => `
+                <div class="agent-list-item ${state.selectedAgentId === agent.id ? 'active' : ''}"
                      onclick="selectAgent('${agent.id}')">
-                    <div class="agent-header">
-                        <div class="agent-icon">
-                            <i class="${agent.icon}"></i>
-                        </div>
-                        <div class="agent-title">
-                            <div class="agent-name">${agent.display_name}</div>
-                            <div class="agent-description">${agent.description}</div>
-                        </div>
+                    <div class="agent-list-item-icon">
+                        <i class="${agent.icon}"></i>
                     </div>
-                    <div class="agent-tags">
-                        ${(agent.tags || []).map(tag => `<span class="agent-tag">${tag}</span>`).join('')}
+                    <div class="agent-list-item-info">
+                        <div class="agent-list-item-name">${agent.display_name}</div>
+                        <div class="agent-list-item-desc">${agent.description}</div>
                     </div>
                 </div>
             `).join('');
         }
 
-        function renderConfigPanel() {
-            const placeholder = document.getElementById('panelPlaceholder');
-            const content = document.getElementById('panelContent');
+        function renderTaskList() {
+            const container = document.getElementById('taskList');
+            const tasks = state.tasksByAgent[state.selectedAgentId] || [];
 
-            if (!state.selectedAgent) {
-                placeholder.classList.remove('hidden');
-                content.classList.add('hidden');
+            if (tasks.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-tasks">
+                        <i class="fas fa-inbox"></i>
+                        <p>暂无任务</p>
+                        <p style="font-size: 0.75rem; margin-top: 8px;">点击"新建任务"开始</p>
+                    </div>
+                `;
                 return;
             }
 
-            placeholder.classList.add('hidden');
-            content.classList.remove('hidden');
+            // Sort by created_at desc
+            const sortedTasks = [...tasks].sort((a, b) =>
+                new Date(b.created_at) - new Date(a.created_at)
+            );
 
-            // Update header
-            document.getElementById('panelAgentName').textContent = state.selectedAgent.display_name;
-            document.getElementById('panelAgentDesc').textContent = state.selectedAgent.description;
-
-            // Convert params to form schema and render
-            const formSchema = convertParamsToFormSchema(state.selectedAgent.params);
-            const form = document.getElementById('dynamicForm');
-            form.innerHTML = formSchema.map(param => renderFormField(param)).join('');
-
-            // If has last params AND task is running, fill them in and disable fields
-            // Only disable during active execution, not after failure
-            if (state.lastParams && state.isRunning) {
-                for (const [key, value] of Object.entries(state.lastParams)) {
-                    const field = document.getElementById(`field_${key}`);
-                    if (field) {
-                        // Set value based on type
-                        if (Array.isArray(value)) {
-                            field.value = value.join('\n');
-                        } else {
-                            field.value = value;
-                        }
-                        // Disable the field ONLY when running
-                        field.disabled = true;
-                    }
-                }
-            } else if (state.lastParams && !state.isRunning) {
-                // Task completed or failed - show previous values but keep fields editable
-                for (const [key, value] of Object.entries(state.lastParams)) {
-                    const field = document.getElementById(`field_${key}`);
-                    if (field) {
-                        // Set value based on type
-                        if (Array.isArray(value)) {
-                            field.value = value.join('\n');
-                        } else {
-                            field.value = value;
-                        }
-                        // Keep field enabled for editing
-                        field.disabled = false;
-                    }
-                }
-            }
-
-            // Add run button
-            form.innerHTML += `
-                <button type="submit" class="run-button" id="runButton" ${state.isRunning ? 'disabled' : ''}>
-                    <i class="fas ${state.isRunning ? 'fa-spinner spinner' : 'fa-play'}"></i>
-                    <span>${state.isRunning ? 'Running...' : 'Run Task'}</span>
-                </button>
-            `;
-
-            // Don't clear console here - only clear when starting a new task
+            container.innerHTML = sortedTasks.map(task => {
+                const taskId = task.task_id || task.id; // 兼容两种字段名
+                return `
+                <div class="task-card ${state.selectedTaskId === taskId ? 'active' : ''}"
+                     onclick="selectTask('${taskId}')">
+                    <div class="task-card-header">
+                        <div class="task-card-status ${task.status}">
+                            <i class="fas ${getStatusIcon(task.status)}"></i>
+                            <span>任务 #${taskId.slice(-6)}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span class="task-card-time">${formatTime(task.created_at)}</span>
+                            ${(task.status === 'failed' || task.status === 'cancelled') ? `
+                                <button class="btn-retry"
+                                        onclick="event.stopPropagation(); retryTask('${taskId}')"
+                                        title="重试此任务">
+                                    <i class="fas fa-redo"></i>
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                    ${task.status === 'running' && task.progress !== undefined ? `
+                        <div class="task-progress">
+                            <div class="task-progress-fill" style="width: ${task.progress}%"></div>
+                        </div>
+                    ` : ''}
+                    ${task.summary ? `
+                        <div class="task-summary" style="font-size: 0.75rem; color: var(--text-muted);">
+                            ${task.summary.split('\n').slice(0, 2).join('<br>')}
+                        </div>
+                    ` : ''}
+                </div>
+                `;
+            }).join('');
         }
 
         function renderFormField(param) {
@@ -1945,118 +2185,210 @@
         // INTERACTION HANDLERS
         // =====================================================
 
-        function selectChannel(channelId) {
-            state.selectedChannel = channelId;
-            state.selectedAgent = null;
-            state.lastParams = null;  // Clear saved params when switching channel
-            renderChannels();
-            renderAgents();
-            renderConfigPanel();
+        async function selectAgent(agentId) {
+            state.selectedAgentId = agentId;
+            state.selectedTaskId = null;
+
+            // 更新 UI
+            document.getElementById('panelPlaceholder').classList.add('hidden');
+            document.getElementById('panelContent').classList.remove('hidden');
+
+            const agent = state.agents.find(a => a.id === agentId);
+            document.getElementById('taskListTitle').textContent = `${agent.display_name} 的任务`;
+
+            renderAgentList();
+            clearConsole();
+            addConsoleLog('info', `已选择 Agent: ${agent.display_name}`);
+
+            // 获取该 Agent 的任务列表
+            await fetchAgentTasks(agentId);
+            renderTaskList();
         }
 
-        function selectAgent(agentId) {
-            state.selectedAgent = state.agents.find(a => a.id === agentId);
-            // Don't clear lastParams here - allow viewing previous params
-            renderAgents();
-            renderConfigPanel();
+        async function selectTask(taskId) {
+            state.selectedTaskId = taskId;
 
-            // On mobile, open panel
-            if (window.innerWidth <= 1200) {
-                document.getElementById('configPanel').classList.add('open');
+            renderTaskList();
+
+            const task = getTaskById(taskId);
+            if (!task) return;
+
+            // 更新 Console 标题
+            document.getElementById('consoleTitle').textContent = `任务 #${taskId.slice(-6)}`;
+
+            // 清空 Console 并显示任务信息
+            clearConsole();
+            addConsoleLog('info', `📋 任务 ID: ${taskId}`);
+            addConsoleLog('info', `📊 状态: ${task.status}`);
+            addConsoleLog('info', `🕐 创建时间: ${new Date(task.created_at).toLocaleString('zh-CN')}`);
+
+            // 渲染任务日志（总是显示）
+            if (task.logs && task.logs.length > 0) {
+                addConsoleLog('info', `📝 执行日志 (${task.logs.length} 条):`);
+                task.logs.forEach(log => {
+                    const statusIcon = log.status === 'completed' ? '✓' : '✗';
+                    const logType = log.status === 'completed' ? 'success' : 'error';
+                    const timestamp = log.timestamp || '';
+                    const name = log.name || '未知步骤';
+                    const message = `${statusIcon} [${timestamp}] ${name}`;
+
+                    // 显示步骤信息
+                    addConsoleLog(logType, message);
+
+                    // 如果有输入/输出，也显示
+                    if (log.input) {
+                        addConsoleLog('info', `  输入: ${JSON.stringify(log.input).slice(0, 100)}...`);
+                    }
+                    if (log.output) {
+                        const outputStr = typeof log.output === 'string' ? log.output : JSON.stringify(log.output);
+                        addConsoleLog('info', `  输出: ${outputStr.slice(0, 150)}...`);
+                    }
+                });
+            }
+
+            // 如果任务正在运行，启动轮询
+            if (task.status === 'running') {
+                addConsoleLog('info', '⏳ 任务正在执行中...');
+                startTaskPolling(taskId);
+            } else if (task.status === 'completed') {
+                // 显示任务结果（在日志之后）
+                if (task.result) {
+                    renderTaskResult(task.result);
+                }
+            } else if (task.status === 'failed') {
+                addConsoleLog('error', `✗ 任务失败: ${task.error || '未知错误'}`);
             }
         }
 
-        async function handleRunTask(event) {
+        function showNewTaskModal() {
+            const agent = state.agents.find(a => a.id === state.selectedAgentId);
+            if (!agent) return;
+
+            document.getElementById('modalTitle').textContent = `新建任务 - ${agent.display_name}`;
+
+            // 渲染表单字段
+            const formSchema = convertParamsToFormSchema(agent.params);
+            const form = document.getElementById('modalForm');
+            form.innerHTML = formSchema.map(param => renderFormField(param)).join('');
+
+            document.getElementById('newTaskModal').classList.add('active');
+            state.isModalOpen = true;
+        }
+
+        function closeModal() {
+            document.getElementById('newTaskModal').classList.remove('active');
+            state.isModalOpen = false;
+        }
+
+        async function submitNewTask(event) {
             event.preventDefault();
 
-            if (state.isRunning || !state.selectedAgent) return;
+            const agent = state.agents.find(a => a.id === state.selectedAgentId);
+            if (!agent) return;
 
-            // Clear console before starting new task
-            clearConsole();
-
-            state.isRunning = true;
-            renderConfigPanel();
-
-            // Collect form data - special handling for list[str] types
+            // 收集表单数据
             const params = {};
+            const missingRequired = [];
 
-            for (const [key, config] of Object.entries(state.selectedAgent.params)) {
+            for (const [key, config] of Object.entries(agent.params)) {
                 const field = document.getElementById(`field_${key}`);
-
                 if (!field) continue;
 
                 if (config.type === 'list[str]') {
-                    // Textarea: split by newlines and filter empty values
-                    params[key] = field.value
+                    const values = field.value
                         .split('\n')
                         .map(v => v.trim())
                         .filter(v => v.length > 0);
+                    if (values.length > 0) {
+                        params[key] = values;
+                    } else if (config.required) {
+                        missingRequired.push(`${config.description || key}`);
+                    }
                 } else if (config.type === 'int') {
-                    // Number input
-                    params[key] = parseInt(field.value) || 0;
+                    const numValue = parseInt(field.value);
+                    if (!isNaN(numValue) && field.value.trim() !== '') {
+                        params[key] = numValue;
+                    } else if (config.required && field.value.trim() === '') {
+                        missingRequired.push(`${config.description || key}`);
+                    }
                 } else if (config.type === 'bool') {
-                    // Boolean
                     params[key] = field.value === 'true' || field.value === true;
                 } else {
-                    // String and other types
-                    params[key] = field.value;
+                    if (field.value && field.value.trim() !== '') {
+                        params[key] = field.value.trim();
+                    } else if (config.required) {
+                        missingRequired.push(`${config.description || key}`);
+                    }
                 }
             }
 
-            // Save params to state for display after task starts
-            state.lastParams = params;
+            // 检查必填字段
+            if (missingRequired.length > 0) {
+                alert(`请填写所有必填字段:\n${missingRequired.join('\n')}`);
+                return;
+            }
 
-            addConsoleLog('info', `🚀 启动任务: ${state.selectedAgent.display_name}`);
-            addConsoleLog('info', `📋 提交参数: ${JSON.stringify(params, null, 2)}`);
-            addConsoleLog('info', `🔍 检查登录状态...`);
+            if (Object.keys(params).length === 0) {
+                alert('请至少填写一个字段');
+                return;
+            }
 
+            // 创建任务
             try {
-                // 调用执行接口
                 const response = await apiCall(API_ENDPOINTS.execute, {
                     method: 'POST',
                     body: JSON.stringify({
-                        agent_or_workflow: state.selectedAgent.id,
+                        agent_or_workflow: agent.id,
                         params: params
                     })
                 });
 
-                // Debug: log the full response
-                console.log('API Response:', response);
+                if (response.code === 0) {
+                    closeModal();
 
-                // 判断是否需要登录
-                if (response.code === 0) {
-                    // 正常执行
-                    addConsoleLog('success', `✓ 登录已验证`);
-                    state.currentTaskId = // 判断是否需要登录
-                if (response.code === 0) {
-                    // 正常执行
-                    addConsoleLog('success', `✓ 登录已验证`);
-                    state.currentTaskId = response.data.task_id;
-                    addConsoleLog('info', `Task created: ${state.currentTaskId}`);
-                    startTaskPolling(state.currentTaskId);
-                } else if (response.code === 401 || response.data?.requires_login) {
-                    // 需要登录
-                    addConsoleLog('warning', '⚠️ 需要登录平台账号', { html: true });
-                    renderLoginButtons(response.data);
-                    addConsoleLog('info', '⏳ 任务已暂停，等待登录确认...');
+                    // 刷新任务列表
+                    await fetchAgentTasks(agent.id);
+                    renderTaskList();
+
+                    // 选中新创建的任务
+                    selectTask(response.data.task_id);
                 } else {
-                    throw new Error(response.message || 'Execution failed');
-                }response.data.task_id;
-                    addConsoleLog('info', `Task created: ${state.currentTaskId}`);
-                    startTaskPolling(state.currentTaskId);
-                } else if (response.code === 401 || response.data?.requires_login) {
-                    // 需要登录
-                    addConsoleLog('warning', '⚠️ 需要登录平台账号', { html: true });
-                    renderLoginButtons(response.data);
-                    addConsoleLog('info', '⏳ 任务已暂停，等待登录确认...');
-                } else {
-                    throw new Error(response.message || 'Execution failed');
+                    alert(`创建任务失败: ${response.message || '未知错误'}`);
                 }
             } catch (error) {
-                addConsoleLog('error', `✗ 任务失败: ${error.message}`);
-                state.isRunning = false;
-                renderConfigPanel();
+                alert(`创建任务失败: ${error.message}`);
             }
+        }
+
+        async function retryTask(taskId) {
+            // 重试任务
+            try {
+                addConsoleLog('info', `正在重试任务 #${taskId.slice(-6)}...`);
+
+                const response = await apiCall(`/sniper/task/${taskId}/retry`, {
+                    method: 'POST'
+                });
+
+                if (response.code === 0) {
+                    addConsoleLog('success', `✓ 任务已重新创建: ${response.data.task_id}`);
+
+                    // 刷新任务列表
+                    await fetchAgentTasks(state.selectedAgentId);
+                    renderTaskList();
+
+                    // 选中新创建的任务
+                    selectTask(response.data.task_id);
+                } else {
+                    alert(`重试失败: ${response.message || '未知错误'}`);
+                }
+            } catch (error) {
+                alert(`重试失败: ${error.message}`);
+            }
+        }
+
+        function showQuickRunMenu() {
+            // TODO: 实现快速启动菜单（从历史记录中选择）
+            alert('快速启动功能开发中...\n\n将支持从历史配置中快速创建任务');
         }
 
         async function fetchTaskLogs(taskId) {
@@ -2097,89 +2429,79 @@
             document.getElementById('consoleOutput').innerHTML = '';
         }
 
-        // 渲染登录按钮
-        function renderLoginButtons(loginData) {
-            const { platform, context_id, resource_url, task_id } = loginData;
+        // =====================================================
+        // TASK RESULT RENDERING
+        // =====================================================
 
-            const platformNames = {
-                'xiaohongshu': '小红书',
-                'douyin': '抖音',
-                'wechat': '微信'
-            };
+        function renderTaskResult(result) {
+            // 渲染任务结果到 Console
+            const consoleDiv = document.getElementById('consoleOutput');
 
-            addConsoleLog('info', `
-                <div class="console-login-card">
-                    <div class="login-card-header">
-                        <i class="fas fa-info-circle"></i>
-                        <span>需要登录 ${platformNames[platform] || platform}</span>
+            // 如果有 output_url，显示下载按钮
+            if (result.output_url) {
+                const downloadCard = document.createElement('div');
+                downloadCard.style.cssText = 'margin-top: 12px; padding: 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px;';
+                downloadCard.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                        <i class="fas fa-download" style="color: var(--success);"></i>
+                        <span style="color: var(--success); font-weight: 600;">任务结果已生成</span>
                     </div>
-                    <div class="login-card-body">
-                        <p>请按以下步骤完成登录：</p>
-                        <ol>
-                            <li>点击下方按钮打开登录页面</li>
-                            <li>使用 ${platformNames[platform] || platform} 扫描二维码</li>
-                            <li>登录完成后点击"我已完成登录"按钮</li>
-                        </ol>
-                        <div class="login-actions">
-                            <a href="${resource_url}"
-                               target="_blank"
-                               class="console-btn"
-                               onclick="window.open('${resource_url}', 'loginWindow', 'width=400,height=600')">
-                                <i class="fas fa-external-link-alt"></i>
-                                打开登录页面
-                            </a>
-                            <button class="console-btn console-btn-primary"
-                                    onclick="confirmLoginAndContinue('${platform}', '${context_id}', '${task_id}')">
-                                <i class="fas fa-check"></i>
-                                我已完成登录
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `, { html: true });
-        }
-
-        // 全局函数：确认登录并继续任务
-        window.confirmLoginAndContinue = async function(platform, contextId, taskId) {
-            const btn = event.target;
-            const originalText = btn.innerHTML;
-
-            try {
-                // 显示加载状态
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fas fa-spinner spinner"></i> <span>确认中...</span>';
-
-                addConsoleLog('info', '确认登录状态...');
-
-                // 调用确认登录接口
-                const response = await apiCall(`/connectors/login/${platform}/confirm`, {
-                    method: 'POST',
-                    body: JSON.stringify({ context_id: contextId })
-                });
-
-                if (response.code === 0) {
-                    addConsoleLog('success', '✓ 登录成功！');
-                    addConsoleLog('info', '🔄 继续执行任务...');
-
-                    // 继续执行原任务
-                    // TODO: 这里可能需要重新调用 execute 接口，或者后端已经有 task_id
-                    // 暂时通过 polling 获取任务状态
-                    if (taskId) {
-                        state.currentTaskId = taskId;
-                        startTaskPolling(taskId);
-                    }
-                } else {
-                    throw new Error(response.message);
-                }
-            } catch (error) {
-                addConsoleLog('error', `✗ 确认失败: ${error.message}`);
-                btn.disabled = false;
-                btn.innerHTML = originalText;
+                    <a href="${result.output_url}" target="_blank"
+                       style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; background: var(--success); color: white; text-decoration: none; border-radius: 6px; font-weight: 600; transition: var(--transition-base);"
+                       onmouseover="this.style.background='#059669'; this.style.transform='translateY(-2px)';"
+                       onmouseout="this.style.background='var(--success)'; this.style.transform='translateY(0)';">
+                        <i class="fas fa-cloud-download-alt"></i>
+                        <span>下载完整报告</span>
+                    </a>
+                `;
+                consoleDiv.appendChild(downloadCard);
             }
-        };
 
-        // 保存待执行任务的状态（用于登录后恢复）
-        let pendingTask = null;
+            // 如果有 output，在console中显示完整内容
+            if (result.output) {
+                const outputContainer = document.createElement('div');
+                outputContainer.style.cssText = 'margin-top: 12px;';
+
+                // 标题栏
+                const headerDiv = document.createElement('div');
+                headerDiv.style.cssText = 'display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px 6px 0 0; cursor: pointer;';
+                headerDiv.innerHTML = `
+                    <i class="fas fa-file-alt" style="color: var(--primary);"></i>
+                    <span style="color: var(--primary); font-weight: 600;">完整分析结果</span>
+                    <i class="fas fa-chevron-down" style="color: var(--primary); margin-left: auto; transition: transform 0.2s;"></i>
+                `;
+
+                // 内容区域
+                const contentDiv = document.createElement('div');
+                contentDiv.id = `output-content-${Date.now()}`;
+                contentDiv.style.cssText = 'padding: 16px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-top: none; border-radius: 0 0 6px 6px; white-space: pre-wrap; word-wrap: break-word; font-family: "Courier New", monospace; font-size: 13px; line-height: 1.6; color: var(--text-primary); max-height: 500px; overflow-y: auto;';
+                contentDiv.textContent = result.output;
+
+                // 点击展开/收起
+                let isExpanded = true;
+                headerDiv.onclick = () => {
+                    isExpanded = !isExpanded;
+                    contentDiv.style.display = isExpanded ? 'block' : 'none';
+                    headerDiv.querySelector('.fa-chevron-down').style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)';
+                };
+
+                outputContainer.appendChild(headerDiv);
+                outputContainer.appendChild(contentDiv);
+                consoleDiv.appendChild(outputContainer);
+            }
+
+            // 其他字段也可以在这里扩展显示
+            for (const [key, value] of Object.entries(result)) {
+                if (key === 'output_url' || key === 'output') continue; // 已经处理过了
+
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'console-line info';
+                infoDiv.innerHTML = `<span class="timestamp">[${new Date().toLocaleTimeString()}]</span>📊 ${key}: ${JSON.stringify(value)}`;
+                consoleDiv.appendChild(infoDiv);
+            }
+
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+        }
 
         // =====================================================
         // API INTEGRATION POINTS

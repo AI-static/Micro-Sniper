@@ -95,6 +95,10 @@ class RedisConfig(BaseModel):
     max_connections: int = Field(default=5000, description="最大连接数")
 
 
+class TaskConfig(BaseModel):
+    """任务配置"""
+    timeout: int = Field(default=60*10, description="任务超时时间（秒）")
+
 class IMConfig(BaseModel):
     """微信连接器配置"""
     wechat_corpid: str = Field(default=None, description="企业微信的企业id")
@@ -117,6 +121,7 @@ class GlobalSettings(BaseSettings):
     oss: OSSConfig = Field(default_factory=OSSConfig)
     wechat: WechatConfig = Field(default_factory=WechatConfig)
     im: IMConfig = Field(default_factory=IMConfig)
+    task: TaskConfig = Field(default_factory=TaskConfig)
 
     model_config = SettingsConfigDict(
         env_file=".env",

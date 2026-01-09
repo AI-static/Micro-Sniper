@@ -152,7 +152,7 @@ class ImageService:
             file_content = file_obj.body if hasattr(file_obj, 'body') else file_obj
 
             # 从文件名推断 MIME 类型
-            mime_type = 'image/png'  # 默认
+            mime_type = None
             if filename:
                 lower_filename = filename.lower()
                 if lower_filename.endswith('.jpg') or lower_filename.endswith('.jpeg'):
@@ -164,9 +164,18 @@ class ImageService:
                 elif lower_filename.endswith('.gif'):
                     mime_type = 'image/gif'
 
-            # 如果文件对象有 type 属性，优先使用
-            if hasattr(file_obj, 'type') and file_obj.type:
+            # 如果文件对象有 type 属性，优先使用（但要验证是否有效）
+            if hasattr(file_obj, 'type') and file_obj.type and file_obj.type.startswith('image/'):
                 mime_type = file_obj.type
+
+            # 如果仍然无法确定 MIME 类型，使用默认值并记录警告
+            if not mime_type:
+                logger.warning(f"无法确定文件 [{idx+1}/{len(files_list)}] 的 MIME 类型，文件名: {filename}，使用默认值 image/png")
+                mime_type = 'image/png'
+
+            # 验证文件内容大小（至少 100 字节）
+            if len(file_content) < 100:
+                raise ValueError(f"文件 [{filename}] 内容过小，可能不是有效的图片文件（大小: {len(file_content)} bytes）")
 
             logger.info(f"处理文件 [{idx+1}/{len(files_list)}]: {filename}, MIME类型: {mime_type}, 文件大小: {len(file_content)} bytes")
 

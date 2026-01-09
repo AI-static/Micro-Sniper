@@ -37,6 +37,7 @@ class Task(Model):
     source = CharField(50, description="请求来源：system, api, user等")
     source_id = CharField(100, description="请求来源ID：用户ID、服务名等")
     task_type = CharField(50, description="任务类型：trend_analysis, creator_monitor等")
+    params = JSONField(null=True, description="任务执行参数（用于重试）")
 
     # 状态管理
     status = CharField(20, default=TaskStatus.PENDING.value, description="任务状态")
@@ -78,11 +79,40 @@ class Task(Model):
         await self.save()
 
     async def complete(self, result_data: dict = None):
-        """完成任务"""
+        """完成任务并上传结果到OSS"""
         self.status = TaskStatus.COMPLETED
         self.completed_at = datetime.now()
         self.progress = 100
+
         if result_data:
+            # 如果结果包含output，上传到OSS
+            if 'output' in result_data:
+                from utils.oss import oss_client
+                import json
+
+                # 准备上传内容
+                output_content = result_data['output']
+
+                # 生成文件名：tasks/年/月/任务ID_任务类型.txt
+                date_prefix = self.completed_at.strftime("%Y/%m")
+                filename = f"tasks/{date_prefix}/{self.id}_{self.task_type}.txt"
+
+                try:
+                    # 上传到OSS
+                    await oss_client.upload_file(filename, output_content.encode('utf-8'))
+
+                    # 生成下载URL
+                    download_url = oss_client.get_public_url(filename)
+
+                    # 更新result，添加output_url
+                    result_data['output_url'] = download_url
+
+                    from utils.logger import logger
+                    logger.info(f"任务结果已上传到OSS: {download_url}")
+                except Exception as e:
+                    from utils.logger import logger
+                    logger.error(f"上传任务结果到OSS失败: {e}")
+
             self.result = result_data
         await self.save()
 

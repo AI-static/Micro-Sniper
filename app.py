@@ -60,10 +60,13 @@ def create_app() -> Sanic:
     
     # 数据库初始化
     setup_database(app)
-    
+
     # Playwright 初始化
     setup_playwright(app)
-    
+
+    # 超时检查器初始化
+    setup_timeout_checker(app)
+
     return app
 
 
@@ -126,3 +129,21 @@ def setup_playwright(app: Sanic):
         from services.sniper.connectors import ConnectorService
         await ConnectorService.cleanup_all_locks()
         logger.info("✅ 分布式锁已清理")
+
+
+def setup_timeout_checker(app: Sanic):
+    """设置任务超时检查器"""
+
+    @app.before_server_start
+    async def start_timeout_checker(app: Sanic):
+        """启动超时检查器"""
+        from middleware.task_timeout import timeout_checker
+        await timeout_checker.start()
+        logger.info("⏱️ 任务超时检查器已启动")
+
+    @app.before_server_stop
+    async def stop_timeout_checker(app: Sanic):
+        """停止超时检查器"""
+        from middleware.task_timeout import timeout_checker
+        await timeout_checker.stop()
+        logger.info("⏱️ 任务超时检查器已停止")

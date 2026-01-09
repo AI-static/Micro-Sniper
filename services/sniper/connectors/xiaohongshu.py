@@ -341,36 +341,6 @@ class XiaohongshuConnector(BaseConnector):
             logger.debug(f"[xiaohongshu] Check login status error: {e}")
             return False
 
-    async def check_login_status(self, source: str = "default", source_id: str = "default") -> Tuple[bool, str]:
-        """检查登录状态（公共方法）
-
-        如果未登录，会抛出 NotLoggedInException
-
-        Raises:
-            NotLoggedInException: 未登录时抛出
-
-        Returns:
-            bool: 已登录返回 True
-        """
-        from utils.exceptions import NotLoggedInException
-
-        # 获取 session
-        session = await self._get_browser_session(source, source_id)
-        browser, context = await self._connect_cdp(session)
-
-        try:
-            # 检查登录
-            page = await context.new_page()
-            await page.goto("https://www.xiaohongshu.com", timeout=30000)
-            await asyncio.sleep(1)
-
-            is_logged_in = await self._check_login_status(page)
-            await page.close()
-
-            return is_logged_in, session.resource_url
-        finally:
-            await self._cleanup_resources(session, browser)
-
     async def publish_content(
             self,
             content: str,
