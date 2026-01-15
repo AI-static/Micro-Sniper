@@ -11,7 +11,8 @@ from agno.db.postgres import AsyncPostgresDb
 from playwright.async_api import async_playwright
 
 # 导入外部 Service
-from .connectors.connector_service import ConnectorService
+from services.sniper.connectors import ConnectorService
+from services.sniper.agent.base_agent import BaseAgent
 from models.task import Task
 from utils.logger import logger
 
@@ -32,7 +33,7 @@ chat_model = DashScope(
     id="qwen-plus",
 )
 
-class XiaohongshuTrendAgent:
+class XiaohongshuTrendAgent(BaseAgent):
     """小红书深度爆款分析专家"""
 
     def __init__(
@@ -42,10 +43,7 @@ class XiaohongshuTrendAgent:
             playwright: Any = None,
             task: Task = None
     ):
-        self._playwright = playwright
-        self._task = task
-        self._source = source
-        self._source_id = source_id
+        super().__init__(source_id, source, playwright, task)
         self.current_date = datetime.now().strftime("%Y-%m-%d")
 
         # === 核心变化 1：Agent 不再挂载 tools ===

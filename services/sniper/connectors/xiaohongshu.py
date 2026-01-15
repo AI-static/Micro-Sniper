@@ -81,7 +81,7 @@ class XiaohongshuConnector(BaseConnector):
             await asyncio.sleep(0.5)
 
             # 验证登录
-            await page.goto("https://www.xiaohongshu.com", timeout=60000)
+            await page.goto("https://www.xiaohongshu.com", timeout=60000, wait_until="domcontentloaded")
             await asyncio.sleep(1)
 
             is_logged_in = await self._check_login_status(page)
@@ -93,7 +93,7 @@ class XiaohongshuConnector(BaseConnector):
             return context_res.context.id
 
         finally:
-            await self._cleanup_resources(session, browser)
+            await self.cleanup_resources(session, browser)
 
     async def login_with_qrcode(
             self,
@@ -151,7 +151,7 @@ class XiaohongshuConnector(BaseConnector):
             await asyncio.sleep(1)
             if await self._check_login_status(page):
                 # 验证成功，已登录
-                await self._cleanup_resources(verify_session, browser_v)
+                await self.cleanup_resources(verify_session, browser_v)
                 return {
                     "success": True,
                     "context_id": context_key,
@@ -168,7 +168,7 @@ class XiaohongshuConnector(BaseConnector):
             qrcode_url = verify_session.resource_url
             # qrcode_url = verify_session_res.session
             if not qrcode_url:
-                await self._cleanup_resources(session, browser)
+                await self.cleanup_resources(session, browser)
                 raise ValueError("Failed to get qrcode image")
             logger.info("[xiaohongshu] QRCode generated, waiting for scan...")
             # 启动后台任务：等待扫码后优雅关闭
@@ -198,7 +198,7 @@ class XiaohongshuConnector(BaseConnector):
             }
         except Exception as e:
             logger.debug(f"[xiaohongshu] Check existing context failed: {e}")
-            await self._cleanup_resources(verify_session, browser_v)
+            await self.cleanup_resources(verify_session, browser_v)
             await self.agent_bay.delete(verify_session, sync_context=False)
 
 
@@ -303,7 +303,7 @@ class XiaohongshuConnector(BaseConnector):
             browser, context = await self._connect_cdp(session)
             page = await context.new_page()
 
-            await page.goto("https://creator.xiaohongshu.com/publish/publish", timeout=60000)
+            await page.goto("https://creator.xiaohongshu.com/publish/publish", timeout=60000, wait_until="domcontentloaded")
             await asyncio.sleep(2)
 
             # 构建 Agent 指令
@@ -326,7 +326,7 @@ class XiaohongshuConnector(BaseConnector):
                 "platform": self.platform_name_str
             }
         finally:
-            await self._cleanup_resources(session, browser)
+            await self.cleanup_resources(session, browser)
 
     # ==================== 业务逻辑：提取与监控 (使用通用批处理) ====================
 
@@ -341,19 +341,15 @@ class XiaohongshuConnector(BaseConnector):
     ) -> List[Dict[str, Any]]:
         """批量抓取创作者笔记"""
 
-        # 获取 session（一次创建，整个方法内复用）
-        session = await self._get_browser_session(source, source_id)
-        browser = None
-
-        try:
-            browser, context = await self._connect_cdp(session)
+        # 使用上下文管理器（需要 CDP，使用 Playwright API）
+        async with self.with_session(source, source_id, connect_cdp=True) as (session, browser, context):
 
             async def _process(creator_id: str, idx: int):
                 await asyncio.sleep(1)
                 logger.info(f"[xiaohongshu] Harvesting creator {idx + 1}/{len(creator_ids)}: {creator_id}")
                 page = await context.new_page()
                 try:
-                    await page.goto(f"https://www.xiaohongshu.com/user/profile/{creator_id}", timeout=60000)
+                    await page.goto(f"https://www.xiaohongshu.com/user/profile/{creator_id}", timeout=60000, wait_until="domcontentloaded")
                     await asyncio.sleep(2)
 
                     # 提取 Initial State
@@ -386,10 +382,7 @@ class XiaohongshuConnector(BaseConnector):
             results = await asyncio.gather(*tasks)
 
             return results
-
-        finally:
-            # 统一清理
-            await self._cleanup_resources(session, browser)
+        # 退出上下文时自动清理 session 和 browser
 
     async def get_note_detail(
             self,
@@ -400,20 +393,15 @@ class XiaohongshuConnector(BaseConnector):
     ) -> List[Dict[str, Any]]:
         """批量获取笔记详情"""
 
-        # 获取 session（一次创建，整个方法内复用）
-        session = await self._get_browser_session(source, source_id)
-        browser = None
-
-        try:
-            browser, context = await self._connect_cdp(session)
+        # 使用上下文管理器（需要 CDP，使用 Playwright API）
+        async with self.with_session(source, source_id, connect_cdp=True) as (session, browser, context):
 
             async def _process(url: str, idx: int):
                 logger.info(f"[xiaohongshu] Extracting detail {idx + 1}/{len(urls)}: {url}")
                 page = await context.new_page()
                 try:
-                    await page.goto(url, timeout=60000)
+                    await page.goto(url, timeout=60000, wait_until="domcontentloaded")
                     await asyncio.sleep(2)
-
                     data = await self._get_note_detail_evaluate(page)
                     return {
                         "url": url,
@@ -436,10 +424,7 @@ class XiaohongshuConnector(BaseConnector):
             results = await asyncio.gather(*tasks)
 
             return results
-
-        finally:
-            # 统一清理
-            await self._cleanup_resources(session, browser)
+        # 退出上下文时自动清理 session 和 browser
 
     async def search_and_extract(
             self,
@@ -452,19 +437,15 @@ class XiaohongshuConnector(BaseConnector):
     ) -> List[Dict[str, Any]]:
         """批量搜索"""
 
-        # 获取 session（一次创建，整个方法内复用）
-        session = await self._get_browser_session(source, source_id)
-        browser = None
-
-        try:
-            browser, context = await self._connect_cdp(session)
+        # 使用上下文管理器（需要 CDP，使用 Playwright API）
+        async with self.with_session(source, source_id, connect_cdp=True) as (session, browser, context):
 
             async def _process(keyword: str, idx: int):
                 logger.info(f"[xiaohongshu] Searching keyword {idx + 1}/{len(keywords)}: {keyword}")
                 page = await context.new_page()
                 try:
                     url = f"https://www.xiaohongshu.com/search_result?keyword={keyword}"
-                    await page.goto(url, timeout=60000)
+                    await page.goto(url, timeout=60000, wait_until="domcontentloaded")
                     await asyncio.sleep(2)
 
                     # 注入 JS 提取搜索结果
@@ -491,10 +472,7 @@ class XiaohongshuConnector(BaseConnector):
             results = await asyncio.gather(*tasks)
 
             return results
-
-        finally:
-            # 统一清理
-            await self._cleanup_resources(session, browser)
+        # 退出上下文时自动清理 session 和 browser
 
     # ==================== 底层数据提取与辅助方法 (私有) ====================
 

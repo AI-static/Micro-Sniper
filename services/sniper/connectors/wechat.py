@@ -25,123 +25,6 @@ class WechatConnector(BaseConnector):
     def __init__(self, playwright):
         super().__init__(platform_name=PlatformType.WECHAT, playwright=playwright)
 
-    async def _get_browser_session(
-            self,
-            source: str = "default",
-            source_id: str = "default"
-    ) -> Any:
-        """获取 browser session（使用持久化 context）
-
-        Args:
-            context_id: 持久化上下文ID
-            source: 系统标识
-            source_id: 用户标识
-
-        Returns:
-            session 对象
-        """
-
-        # 使用 context 创建 session
-        session_result = await self.agent_bay.create(
-            CreateSessionParams(
-                image_id="browser_latest"
-            )
-        )
-
-        if not session_result.success:
-            raise SessionCreationException(f"Failed to create session: {session_result.error_message}")
-
-        session = session_result.session
-
-        # 初始化浏览器
-        ok = await session.browser.initialize(BrowserOption(
-            screen=BrowserScreen(width=1920, height=1080),
-            solve_captchas=True,
-            use_stealth=True,
-            fingerprint=BrowserFingerprint(
-                devices=["desktop"],
-                operating_systems=["windows"],
-                locales=self.get_locale(),
-            ),
-        ))
-
-        if not ok:
-            await self.agent_bay.delete(session, sync_context=False)
-            raise BrowserInitializationException("Failed to initialize browser")
-
-        return session
-
-    async def extract_summary_stream(
-        self,
-        urls: List[str],
-        concurrency: int=1,
-        source: str=None,
-        source_id: str=None,
-    ):
-        """流式提取微信公众号文章摘要，支持并发"""
-        # 定义提取指令
-        instruction = "根据数据结构提取相关内容，并进行内容总结分析"
-
-        session = await self._get_browser_session(source, source_id)
-
-        try:
-            # 创建信号量来限制并发数
-            semaphore = asyncio.Semaphore(concurrency)
-
-            async def extract_single_url(url: str, idx: int):
-                """提取单个 URL（使用共享的 browser context）"""
-                async with semaphore:
-                    logger.info(f"[wechat] Processing URL {idx}/{len(urls)}: {url}")
-                    try:
-                        # 关闭可能出现的弹窗
-                        try:
-                            agent = session.browser.agent
-                            nav_msg = await agent.navigate(url)
-                            await agent.act_async(
-                                ActOptions(action="如果有弹窗或广告，关闭它们，然后滑动到文章最下边。"),
-                            )
-                        except:
-                            pass
-
-                        # 提取文章内容
-                        ok, data = await self._extract_page_content(page, instruction, GzhArticleSummary)
-                        result = {
-                            "url": url,
-                            "success": ok,
-                            "data": data.model_dump() if ok else {}
-                        }
-
-                        logger.info(f"[wechat] Extracted summary for URL {idx}/{len(urls)}, success={ok}")
-
-                        return result
-
-                    except Exception as e:
-                        logger.error(f"[wechat] Error extracting {url}: {e}")
-                        return {
-                            "url": url,
-                            "success": False,
-                            "error": str(e)
-                        }
-                    finally:
-                        # 关闭 page
-                        if page:
-                            await page.close()
-
-            # 启动所有任务
-            tasks = [
-                asyncio.create_task(extract_single_url(url, idx))
-                for idx, url in enumerate(urls, 1)
-            ]
-
-            # 使用 as_completed 来实时返回结果（谁先完成就先返回谁）
-            for completed_task in asyncio.as_completed(tasks):
-                result = await completed_task
-                yield result
-
-        finally:
-            # 所有 URL 处理完后删除 session
-            await self.agent_bay.delete(session, sync_context=False)
-
     async def harvest_user_content(
         self,
         creator_ids: List[str],
@@ -168,8 +51,8 @@ class WechatConnector(BaseConnector):
         source_id: str = "default",
         concurrency: int = 2
     ) -> List[Dict[str, Any]]:
-        """快速获取微信文章详情
-        
+        """快速获取微信文章详情（不需要登录）
+
         Args:
             urls: 文章URL列表
             concurrency: 并发数
@@ -181,13 +64,46 @@ class WechatConnector(BaseConnector):
         if not urls:
             raise ValueError("未输入urls")
 
-        # 获取或创建 session
-        session = await self._get_browser_session(source, source_id)
+        # 微信公众号文章是公开的，不需要登录，直接创建临时浏览器会话
+        from agentbay import CreateSessionParams, BrowserOption, BrowserScreen, BrowserFingerprint
+
+        logger.info(f"[WechatConnector] 创建临时浏览器会话采集 {len(urls)} 篇文章")
+
+        # 创建临时 session（不使用持久化 context）
+        session_result = await self.agent_bay.create(
+            CreateSessionParams(
+                image_id="browser_latest",
+                browser_context=None  # 不使用持久化 context，每次都是新的
+            )
+        )
+
+        if not session_result.success:
+            raise SessionCreationException(f"Failed to create session: {session_result.error_message}")
+
+        session = session_result.session
+
+        # 初始化浏览器
+        ok = await session.browser.initialize(
+            BrowserOption(
+                screen=BrowserScreen(width=1920, height=1080),
+                solve_captchas=True,
+                use_stealth=True,
+                fingerprint=BrowserFingerprint(
+                    devices=["desktop"],
+                    operating_systems=["windows"],
+                    locales=["zh-CN"],
+                ),
+            )
+        )
+        if not ok:
+            await self.agent_bay.delete(session, sync_context=False)
+            raise BrowserInitializationException("Failed to initialize browser")
+
+        # 连接 CDP 以使用 Playwright API
         endpoint_url = await session.browser.get_endpoint_url()
-        
         browser = await self.playwright.chromium.connect_over_cdp(endpoint_url)
-        context = browser.contexts[0]
-        
+        context = browser.contexts[0] if browser.contexts else await browser.new_context()
+
         try:
             semaphore = asyncio.Semaphore(concurrency)
 
@@ -205,11 +121,11 @@ class WechatConnector(BaseConnector):
                                 // 提取标题
                                 const titleEl = document.querySelector('#activity-name, .rich_media_title, h1');
                                 const title = titleEl ? titleEl.innerText.trim() : '';
-                                
+
                                 // 提取作者
                                 const authorEl = document.querySelector('#profileBt, .rich_media_meta_text, [id*="author"]');
                                 const author = authorEl ? authorEl.innerText.trim() : '';
-                                
+
                                 // 提取发布时间
                                 const timeEl = document.querySelector('#publish_time, .rich_media_meta_text, [id*="time"]');
                                 let publishTime = '';
@@ -219,7 +135,7 @@ class WechatConnector(BaseConnector):
                                     const timeMatch = text.match(/(\\d{4}-\\d{2}-\\d{2}|\\d{2}:\\d{2}|\\d{4}年\\d{1,2}月\\d{1,2}日)/);
                                     publishTime = timeMatch ? timeMatch[1] : text;
                                 }
-                                
+
                                 // 提取阅读量
                                 const readNumEl = document.querySelector('#sg_read_num3, .read_num, [id*="read"]');
                                 let readCount = 0;
@@ -228,21 +144,21 @@ class WechatConnector(BaseConnector):
                                     const numMatch = text.match(/(\\d+,?\\d*)/);
                                     readCount = numMatch ? parseInt(numMatch[1].replace(/,/g, '')) : 0;
                                 }
-                                
+
                                 // 提取内容
                                 const contentEl = document.querySelector('#js_content, .rich_media_content, [id*="content"]');
                                 let content = '';
                                 let images = [];
-                                
+
                                 if (contentEl) {
                                     // 获取纯文本内容
                                     content = contentEl.innerText.trim();
-                                    
+
                                     // 提取所有图片
                                     const imgEls = contentEl.querySelectorAll('img');
                                     images = Array.from(imgEls).map(img => {
-                                        const src = img.getAttribute('data-src') || 
-                                                   img.getAttribute('src') || 
+                                        const src = img.getAttribute('data-src') ||
+                                                   img.getAttribute('src') ||
                                                    img.getAttribute('data-original');
                                         if (src && !src.startsWith('data:')) {
                                             return src.startsWith('//') ? 'https:' + src : src;
@@ -250,11 +166,11 @@ class WechatConnector(BaseConnector):
                                         return null;
                                     }).filter(Boolean);
                                 }
-                                
+
                                 // 提取摘要
-                                const summary = content.length > 200 ? 
+                                const summary = content.length > 200 ?
                                     content.substring(0, 200) + '...' : content;
-                                
+
                                 return {
                                     title: title,
                                     author: author,
@@ -289,8 +205,21 @@ class WechatConnector(BaseConnector):
             tasks = [extract_detail(url) for url in urls]
             results = await asyncio.gather(*tasks)
             return results
+
         finally:
-            await self.agent_bay.delete(session, sync_context=False)
+            # 清理资源
+            try:
+                if browser:
+                    cdp = await browser.new_browser_cdp_session()
+                    await cdp.send('Browser.close')
+                    await asyncio.sleep(0.5)
+                await browser.close()
+            except Exception as e:
+                logger.warning(f"[WechatConnector] Error closing browser: {e}")
+
+            if session:
+                await self.agent_bay.delete(session, sync_context=False)  # 不需要保存 context
+                logger.info(f"[WechatConnector] Temporary session deleted")
 
     async def harvest_user_content_by_creator(
         self,

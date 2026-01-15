@@ -7,6 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional, Tuple
 from playwright.async_api import async_playwright, Page
+from contextlib import asynccontextmanager
 
 from agentbay import AsyncAgentBay
 from agentbay import ExtractOptions, CreateSessionParams, BrowserContext, BrowserOption, BrowserScreen, BrowserFingerprint
@@ -101,6 +102,72 @@ class BaseConnector(ABC):
         context = browser.contexts[0] if browser.contexts else await browser.new_context()
         return browser, context
 
+    @asynccontextmanager
+    async def with_session(self, source: str = "default", source_id: str = "default", connect_cdp: bool = False):
+        """Session 上下文管理器（自动管理资源生命周期）
+
+        使用方式：
+            # 只需要 Agent（不需要 CDP）
+            async with self.with_session(source, source_id) as (session, _, _):
+                await session.browser.agent.navigate(url)
+                await session.browser.agent.extract(...)
+
+            # 需要 Playwright API（需要 CDP）
+            async with self.with_session(source, source_id, connect_cdp=True) as (session, browser, context):
+                page = await context.new_page()
+                await page.goto(url)
+                # ...
+            # 退出上下文时自动清理资源
+
+        Args:
+            source: 系统标识
+            source_id: 用户标识
+            connect_cdp: 是否连接 CDP（如果需要用 Playwright API，设为 True）
+
+        Yields:
+            tuple: (session, browser, context)
+                   - connect_cdp=False: (session, None, None)
+                   - connect_cdp=True: (session, browser, context)
+        """
+        # 创建 session
+        session = await self._get_browser_session(source, source_id)
+        browser = None
+        context = None
+
+        try:
+            # 根据需要连接 CDP
+            if connect_cdp:
+                browser, context = await self._connect_cdp(session)
+
+            # 返回资源给调用者
+            yield session, browser, context
+
+        finally:
+            # 无论如何都清理资源
+            logger.debug(f"[{self.platform_name_str}] Cleaning up session context (connect_cdp={connect_cdp})")
+
+            try:
+                if browser:
+                    # 关闭 browser
+                    try:
+                        cdp = await browser.new_browser_cdp_session()
+                        await cdp.send('Browser.close')
+                        await asyncio.sleep(0.5)  # 给一点时间让 socket 关闭
+                    except:
+                        pass
+                    await browser.close()
+                    logger.debug(f"[{self.platform_name_str}] Browser closed")
+
+                if session:
+                    # 删除 session（sync_context=True 保存 Cookie）
+                    await self.agent_bay.delete(session, sync_context=True)
+                    logger.debug(f"[{self.platform_name_str}] Session deleted")
+
+            except Exception as e:
+                logger.error(f"[{self.platform_name_str}] Error cleaning up session: {e}")
+
+            logger.debug(f"[{self.platform_name_str}] Session context cleanup completed")
+
     async def _wait_and_cleanup_after_scan(
             self,
             session: Any,
@@ -130,7 +197,7 @@ class BaseConnector(ABC):
                 logger.info(f"[Connector] Cleaning up _login_tasks entry: {context_key}")
                 del self._login_tasks[context_key]
 
-    async def _cleanup_resources(self, session, browser):
+    async def cleanup_resources(self, session, browser):
         """统一清理资源"""
 
         try:

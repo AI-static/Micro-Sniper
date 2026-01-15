@@ -12,6 +12,9 @@ from config.settings import settings, create_db_config
 from utils.logger import logger
 from tortoise import Tortoise
 from types import SimpleNamespace
+import signal
+import asyncio
+import sys
 
 
 def create_app() -> Sanic:
@@ -64,9 +67,6 @@ def create_app() -> Sanic:
     # Playwright 初始化
     setup_playwright(app)
 
-    # 超时检查器初始化
-    setup_timeout_checker(app)
-
     return app
 
 
@@ -117,6 +117,39 @@ def setup_playwright(app: Sanic):
         logger.info("🎭 初始化 Playwright...")
         app.ctx.playwright = await async_playwright().start()
 
+        # 启动全局取消监听器
+        from api.routes.sniper import cancel_manager
+        await cancel_manager.start_listener()
+        logger.info("✅ 全局取消监听器已启动")
+
+        # 注册信号处理器（处理 Ctrl+C 和 kill 命令）
+        def signal_handler(signum, frame):
+            """处理 SIGTERM 和 SIGINT 信号"""
+            import signal
+            signal_name = signal.Signals(signum).name
+            logger.warning(f"收到信号 {signal_name}，正在清理资源...")
+
+            # 创建新的事件循环来执行清理
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                # 清理所有分布式锁
+                from services.sniper.connectors import ConnectorService
+                loop.run_until_complete(ConnectorService.cleanup_all_locks())
+                logger.info("✅ 分布式锁已清理（信号处理器）")
+            except Exception as e:
+                logger.error(f"清理分布式锁时出错: {e}")
+            finally:
+                loop.close()
+                sys.exit(0)
+
+        # 注册 SIGTERM 和 SIGINT 信号处理器
+        import signal
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+        logger.info("✅ 信号处理器已注册")
+
     @app.before_server_stop
     async def cleanup_playwright(app: Sanic):
         """清理 Playwright 资源和分布式锁"""
@@ -125,25 +158,12 @@ def setup_playwright(app: Sanic):
             await app.ctx.playwright.stop()
             logger.info("✅ Playwright 资源已清理")
 
+        # 停止全局取消监听器
+        from api.routes.sniper import cancel_manager
+        await cancel_manager.stop_listener()
+        logger.info("✅ 全局取消监听器已停止")
+
         # 清理所有活跃任务的分布式锁
         from services.sniper.connectors import ConnectorService
         await ConnectorService.cleanup_all_locks()
         logger.info("✅ 分布式锁已清理")
-
-
-def setup_timeout_checker(app: Sanic):
-    """设置任务超时检查器"""
-
-    @app.before_server_start
-    async def start_timeout_checker(app: Sanic):
-        """启动超时检查器"""
-        from middleware.task_timeout import timeout_checker
-        await timeout_checker.start()
-        logger.info("⏱️ 任务超时检查器已启动")
-
-    @app.before_server_stop
-    async def stop_timeout_checker(app: Sanic):
-        """停止超时检查器"""
-        from middleware.task_timeout import timeout_checker
-        await timeout_checker.stop()
-        logger.info("⏱️ 任务超时检查器已停止")

@@ -15,19 +15,17 @@ from typing import List, Dict, Any
 from playwright.async_api import async_playwright
 
 from services.sniper.connectors import ConnectorService
+from services.sniper.agent.base_agent import BaseAgent
 from models.connectors import PlatformType
 from models.task import Task
 from utils.logger import logger
 
 
-class CreatorSniper:
+class CreatorSniper(BaseAgent):
     """创作者狙击手 - 监控新内容"""
 
     def __init__(self, source_id: str = "system", source: str = "system", playwright: Any = None, task: Task = None):
-        self._playwright = playwright
-        self._task = task
-        self._source = source
-        self._source_id = source_id
+        super().__init__(source_id, source, playwright, task)
         self.today = datetime.now().date()
 
     async def execute(

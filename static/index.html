@@ -671,6 +671,30 @@
             transform: scale(0.95);
         }
 
+        .btn-cancel {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid var(--error);
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            transition: var(--transition-base);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 0.75rem;
+            color: var(--error);
+        }
+
+        .btn-cancel:hover {
+            background: var(--error);
+            color: white;
+            border-color: var(--error);
+        }
+
+        .btn-cancel:active {
+            transform: scale(0.95);
+        }
+
         .task-progress {
             height: 4px;
             background: var(--bg-primary);
@@ -1918,9 +1942,23 @@
                     field.placeholder = config.placeholder || '每行一个值';
                     field.hint = config.description;
                 } else if (config.type === 'str') {
-                    field.type = 'text';
-                    field.placeholder = config.placeholder || '';
-                    field.hint = config.description;
+                    // 如果有 options，使用单选框
+                    if (config.options && config.options.length > 0) {
+                        field.type = 'radio';
+                        field.options = config.options.map(opt => {
+                            // 处理 options 为字符串数组的情况
+                            if (typeof opt === 'string') {
+                                return { value: opt, label: opt };
+                            }
+                            return opt;
+                        });
+                        field.default = config.default || field.options[0].value;
+                        field.hint = config.description;
+                    } else {
+                        field.type = 'text';
+                        field.placeholder = config.placeholder || '';
+                        field.hint = config.description;
+                    }
                 } else if (config.type === 'int') {
                     field.type = 'number';
                     field.placeholder = config.default || '';
@@ -2125,7 +2163,7 @@
             const channelName = channelInfo.name;
 
             return `
-                <div class="channel-group" data-channel="${channel}">
+                <div class="channel-group collapsed" data-channel="${channel}">
                     <div class="channel-header" onclick="toggleChannelGroup(this)">
                         <div class="channel-icon">${channelIcon}</div>
                         <div class="channel-name">${channelName}</div>
@@ -2255,6 +2293,13 @@
                                     <i class="fas fa-redo"></i>
                                 </button>
                             ` : ''}
+                            ${(task.status === 'running' || task.status === 'pending' || task.status === 'waiting_login') ? `
+                                <button class="btn-cancel"
+                                        onclick="event.stopPropagation(); cancelTask('${taskId}')"
+                                        title="取消此任务">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            ` : ''}
                         </div>
                     </div>
                     ${task.status === 'running' && task.progress !== undefined ? `
@@ -2361,6 +2406,34 @@
                         </div>
                     `;
 
+                case 'radio':
+                    return `
+                        <div class="form-group">
+                            <label class="form-label">
+                                <i class="fas fa-list-ul"></i>
+                                ${param.label}
+                                ${param.required ? '<span style="color:var(--error)">*</span>' : ''}
+                            </label>
+                            <div class="radio-group" style="display: flex; flex-direction: column; gap: var(--space-sm);">
+                                ${param.options.map((opt, idx) => `
+                                    <label class="radio-option" style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer; padding: var(--space-sm); border-radius: 6px; transition: var(--transition-fast);">
+                                        <input
+                                            type="radio"
+                                            id="${baseId}_${idx}"
+                                            name="${param.key}"
+                                            value="${opt.value}"
+                                            ${idx === 0 ? 'checked' : ''}
+                                            ${param.required ? 'required' : ''}
+                                            style="cursor: pointer;"
+                                        >
+                                        <span style="color: var(--text-primary);">${opt.label}</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                            ${param.hint ? `<span class="form-hint">${param.hint}</span>` : ''}
+                        </div>
+                    `;
+
                 default:
                     return '';
             }
@@ -2381,7 +2454,15 @@
             const agent = state.agents.find(a => a.id === agentId);
             document.getElementById('taskListTitle').textContent = `${agent.display_name} 的任务`;
 
-            renderAgentList();
+            // 只更新选中状态，不重新渲染整个列表
+            document.querySelectorAll('.agent-card').forEach(card => {
+                card.classList.remove('active');
+            });
+            const selectedCard = document.querySelector(`.agent-card[onclick*="${agentId}"]`);
+            if (selectedCard) {
+                selectedCard.classList.add('active');
+            }
+
             clearConsole();
             addConsoleLog('info', `已选择 Agent: ${agent.display_name}`);
 
@@ -2593,6 +2674,36 @@
             }
         }
 
+        async function cancelTask(taskId) {
+            // 取消任务
+            if (!confirm('确定要取消此任务吗？')) {
+                return;
+            }
+
+            try {
+                addConsoleLog('warning', `正在取消任务 #${taskId.slice(-6)}...`);
+
+                const response = await apiCall(`/sniper/task/${taskId}/cancel`, {
+                    method: 'POST'
+                });
+
+                if (response.code === 0) {
+                    addConsoleLog('success', `✓ 任务已取消`);
+
+                    // 停止轮询
+                    stopTaskPolling(taskId);
+
+                    // 刷新任务列表
+                    await fetchAgentTasks(state.selectedAgentId);
+                    renderTaskList();
+                } else {
+                    alert(`取消失败: ${response.message || '未知错误'}`);
+                }
+            } catch (error) {
+                alert(`取消失败: ${error.message}`);
+            }
+        }
+
         function showQuickRunMenu() {
             // TODO: 实现快速启动菜单（从历史记录中选择）
             alert('快速启动功能开发中...\n\n将支持从历史配置中快速创建任务');
@@ -2675,7 +2786,11 @@
                 headerDiv.innerHTML = `
                     <i class="fas fa-file-alt" style="color: var(--primary);"></i>
                     <span style="color: var(--primary); font-weight: 600;">完整分析结果</span>
-                    <i class="fas fa-chevron-down" style="color: var(--primary); margin-left: auto; transition: transform 0.2s;"></i>
+                    <button class="copy-output-btn" style="margin-left: auto; padding: 4px 12px; background: var(--primary); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; display: flex; align-items: center; gap: 4px; transition: var(--transition-fast);">
+                        <i class="fas fa-copy"></i>
+                        <span>复制</span>
+                    </button>
+                    <i class="fas fa-chevron-down" style="color: var(--primary); margin-left: 8px; transition: transform 0.2s;"></i>
                 `;
 
                 // 内容区域
@@ -2683,6 +2798,29 @@
                 contentDiv.id = `output-content-${Date.now()}`;
                 contentDiv.style.cssText = 'padding: 16px; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-top: none; border-radius: 0 0 6px 6px; white-space: pre-wrap; word-wrap: break-word; font-family: "Courier New", monospace; font-size: 13px; line-height: 1.6; color: var(--text-primary); max-height: 500px; overflow-y: auto;';
                 contentDiv.textContent = result.output;
+
+                // 复制按钮功能
+                const copyBtn = headerDiv.querySelector('.copy-output-btn');
+                copyBtn.onclick = (e) => {
+                    e.stopPropagation(); // 阻止事件冒泡，不触发折叠
+                    navigator.clipboard.writeText(result.output).then(() => {
+                        const originalHTML = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '<i class="fas fa-check"></i><span>已复制</span>';
+                        copyBtn.style.background = 'var(--success)';
+                        setTimeout(() => {
+                            copyBtn.innerHTML = originalHTML;
+                            copyBtn.style.background = 'var(--primary)';
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('复制失败:', err);
+                        copyBtn.innerHTML = '<i class="fas fa-times"></i><span>失败</span>';
+                        copyBtn.style.background = 'var(--error)';
+                        setTimeout(() => {
+                            copyBtn.innerHTML = '<i class="fas fa-copy"></i><span>复制</span>';
+                            copyBtn.style.background = 'var(--primary)';
+                        }, 2000);
+                    });
+                };
 
                 // 点击展开/收起
                 let isExpanded = true;

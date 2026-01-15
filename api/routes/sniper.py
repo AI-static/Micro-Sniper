@@ -10,12 +10,20 @@ from services.task_service import TaskService
 from utils.logger import logger
 
 # 导入所有 Agent 类
-from services.sniper.xhs_trend import XiaohongshuTrendAgent
-from services.sniper.xhs_creator import CreatorSniper
-from services.sniper.douyin_trend import DouyinDeepAgent
+from services.sniper.agent.xhs_trend import XiaohongshuTrendAgent
+from services.sniper.agent.xhs_creator import CreatorSniper
+from services.sniper.agent.douyin_trend import DouyinDeepAgent
+from services.sniper.agent.wechat_harvest import WechatHarvestAgent
+from services.sniper.agent.wechat_analyze import WechatAnalyzeAgent
 from config.settings import global_settings
 
+# 导入 Task 模型
+from models.task import Task, TaskStatus
+
 sniper_bp = Blueprint("sniper", url_prefix="/sniper")
+
+# Redis Pub/Sub 频道前缀
+CANCEL_CHANNEL_PREFIX = "task_cancel:"
 
 # Agent 时间节省配置（与 list_agents 保持一致）
 AGENT_TIME_SAVINGS: dict[str, int] = {
@@ -23,6 +31,8 @@ AGENT_TIME_SAVINGS: dict[str, int] = {
     "xhs_creator_sniper": 25,
     "douyin_trend_agent": 85,
     "douyin_creator_sniper": 25,
+    "wechat_harvest_agent": 30,
+    "wechat_analyze_agent": 60,
 }
 
 # Agent/Workflow 映射表 - 直接存储类对象
@@ -34,9 +44,112 @@ AGENT_WORKFLOW_MAPPING = {
     # 抖音 Agent
     "douyin_trend_agent": DouyinDeepAgent,
 
+    # 微信 Agent
+    "wechat_harvest_agent": WechatHarvestAgent,
+    "wechat_analyze_agent": WechatAnalyzeAgent,
+
     # 可以继续添加更多 Agent 和 Workflow
     # "custom_workflow": CustomWorkflow,
 }
+
+
+class GlobalCancelManager:
+    """全局取消管理器 - 统一管理所有任务的取消
+
+    使用单例模式，全局只有一个 Pub/Sub 订阅
+    """
+
+    _instance = None
+    _pubsub = None
+    _listener_task = None
+    _cancel_events: dict[str, asyncio.Event] = {}  # task_id -> Event
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    async def start_listener(self):
+        """启动全局 Pub/Sub 监听器"""
+        if self._listener_task is not None:
+            logger.warning("[CancelManager] 全局监听器已在运行")
+            return
+
+        self._listener_task = asyncio.create_task(self._listen_cancel_messages())
+        logger.info("[CancelManager] 全局 Pub/Sub 监听器已启动")
+
+    async def _listen_cancel_messages(self):
+        """监听 Redis Pub/Sub 取消消息"""
+        from utils.cache import get_redis
+
+        try:
+            redis = await get_redis()
+            pubsub = redis.pubsub()
+
+            # 订阅所有取消频道（使用模式匹配）
+            await pubsub.subscribe(f"{CANCEL_CHANNEL_PREFIX}*")
+
+            logger.info("[CancelManager] 已订阅取消频道: task_cancel:*")
+
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    # 解析频道名，提取 task_id
+                    channel = message["channel"]
+                    if isinstance(channel, bytes):
+                        channel = channel.decode("utf-8")
+
+                    # 从频道名中提取 task_id: "task_cancel:{task_id}" -> "{task_id}"
+                    task_id = channel.replace(CANCEL_CHANNEL_PREFIX, "")
+                    logger.info(f"[CancelManager] 收到任务 {task_id} 的取消消息")
+
+                    # 触发对应任务的取消事件
+                    if task_id in self._cancel_events:
+                        self._cancel_events[task_id].set()
+                        logger.info(f"[CancelManager] 任务 {task_id} 取消事件已触发")
+                    else:
+                        logger.warning(f"[CancelManager] 任务 {task_id} 未注册，忽略取消消息")
+
+        except Exception as e:
+            logger.error(f"[CancelManager] 监听器出错: {e}")
+        finally:
+            if pubsub:
+                await pubsub.close()
+            logger.info("[CancelManager] 全局 Pub/Sub 监听器已停止")
+
+    def register_task(self, task_id: str) -> asyncio.Event:
+        """注册任务并返回取消事件
+
+        Args:
+            task_id: 任务 ID
+
+        Returns:
+            asyncio.Event: 取消事件
+        """
+        if task_id not in self._cancel_events:
+            self._cancel_events[task_id] = asyncio.Event()
+            logger.debug(f"[CancelManager] 任务 {task_id} 已注册")
+        return self._cancel_events[task_id]
+
+    def unregister_task(self, task_id: str):
+        """注销任务"""
+        if task_id in self._cancel_events:
+            del self._cancel_events[task_id]
+            logger.debug(f"[CancelManager] 任务 {task_id} 已注销")
+
+    async def stop_listener(self):
+        """停止全局监听器"""
+        if self._listener_task:
+            self._listener_task.cancel()
+            try:
+                await self._listener_task
+            except asyncio.CancelledError:
+                pass
+            self._listener_task = None
+            logger.info("[CancelManager] 全局 Pub/Sub 监听器已停止")
+
+
+# 全局取消管理器实例
+cancel_manager = GlobalCancelManager()
 
 
 @sniper_bp.post("/execute")
@@ -105,7 +218,14 @@ async def execute_agent(request: Request):
 
 
 async def _run_agent_task(agent_class, request: Request, task, **kwargs):
-    """在后台运行 Agent 任务
+    """在后台运行 Agent 任务（支持跨进程实时取消）
+
+    使用 Redis Pub/Sub + asyncio.Event 实现实时取消：
+    - 后台任务订阅 Redis Pub/Sub 频道
+    - 收到取消消息时设置 asyncio.Event
+    - 主任务通过 asyncio.wait 等待取消或完成
+
+    状态管理由 ConnectorService 统一负责（__aexit__）
 
     Args:
         agent_class: Agent 类对象
@@ -113,34 +233,94 @@ async def _run_agent_task(agent_class, request: Request, task, **kwargs):
         task: 任务对象
         **kwargs: 传递给 Agent 的参数
     """
+    from utils.cache import get_redis
+
+    # 创建 Agent 实例
+    auth_info = request.ctx.auth_info
+    agent = agent_class(
+        source_id=auth_info.source_id,
+        source=auth_info.source.value,
+        playwright=request.app.ctx.playwright,
+        task=task
+    )
+
+    # 超时配置
+    timeout_seconds = global_settings.task.timeout
+
+    # Redis Pub/Sub 频道名
+    cancel_channel = f"{CANCEL_CHANNEL_PREFIX}{task.id}"
+
+    # PubSub 连接
+    redis = await get_redis()
+    pubsub = None
+
     try:
-        # 创建实例
-        auth_info = request.ctx.auth_info
-        agent = agent_class(
-            source_id=auth_info.source_id,
-            source=auth_info.source.value,
-            playwright=request.app.ctx.playwright,
-            task=task
+        # 创建取消事件
+        cancel_event = asyncio.Event()
+
+        # 启动 Pub/Sub 监听任务
+        async def listen_cancel():
+            nonlocal pubsub
+            pubsub = redis.pubsub()
+            await pubsub.subscribe(cancel_channel)
+
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    logger.info(f"收到任务 {task.id} 的取消消息（Redis Pub/Sub）")
+                    cancel_event.set()
+                    break
+
+        # 启动监听任务
+        listen_task = asyncio.create_task(listen_cancel())
+
+        # 创建一个可以被取消的协程任务（带超时）
+        async def execute_with_timeout():
+            return await asyncio.wait_for(agent.execute(**kwargs), timeout=timeout_seconds)
+
+        # 启动执行任务
+        execute_task = asyncio.create_task(execute_with_timeout())
+
+        # 等待取消信号或任务完成
+        done, pending = await asyncio.wait(
+            [execute_task, listen_task],
+            return_when=asyncio.FIRST_COMPLETED
         )
 
-        # 设置超时时间（优先使用 Agent 类的配置，否则使用全局配置）
-        timeout_seconds = getattr(agent, 'timeout_seconds', global_settings.task.timeout)
+        # 取消未完成的任务
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
-        # 使用 asyncio.wait_for 添加超时控制
-        try:
-            await asyncio.wait_for(
-                agent.execute(**kwargs),
-                timeout=timeout_seconds
-            )
-        except asyncio.TimeoutError:
-            logger.error(f"Agent {agent_class.__name__} 执行超时（{timeout_seconds}秒）")
-            await task.fail(f"任务执行超时（{timeout_seconds}秒）", progress=task.progress)
+        # 检查是否被取消
+        if cancel_event.is_set():
+            logger.info(f"任务 {task.id} 被取消，正在清理资源...")
+            logger.info(f"任务 {task.id} 资源清理完成")
             return
 
-    except Exception as e:
-        import traceback
-        logger.error(f"Agent {agent_class.__name__} 执行失败: {traceback.format_exc()}")
-        await task.fail(str(e), 0)
+        # 检查执行任务的结果（状态由 ConnectorService.__aexit__ 管理）
+        if execute_task.done():
+            try:
+                await execute_task
+            except Exception:
+                import traceback
+                logger.error(f"Agent {agent_class.__name__} 执行失败: {traceback.format_exc()}")
+
+    finally:
+        # 无论成功、失败还是取消，都清理资源
+        # 1. 清理 Pub/Sub 连接
+        if pubsub:
+            try:
+                await pubsub.unsubscribe(cancel_channel)
+                await pubsub.close()
+                logger.debug(f"任务 {task.id} 的 Pub/Sub 连接已关闭")
+            except Exception as e:
+                logger.error(f"关闭 Pub/Sub 连接时出错: {e}")
+
+        # 2. 清理 Agent 资源
+        try:
+            await agent.cleanup()
+        except Exception as e:
+            logger.error(f"清理 Agent 资源时出错: {e}")
 
 
 @sniper_bp.get("/task/<task_id:str>")
@@ -167,8 +347,6 @@ async def get_task(request: Request, task_id: str):
 async def retry_task(request: Request, task_id: str):
     """重试任务"""
     try:
-        from models.task import Task, TaskStatus
-
         # 获取原任务（会复用此任务对象）
         task = await Task.get_or_none(id=task_id)
         if not task:
@@ -224,6 +402,70 @@ async def retry_task(request: Request, task_id: str):
         ).model_dump(), status=500)
 
 
+@sniper_bp.post("/task/<task_id:str>/cancel")
+async def cancel_task(request: Request, task_id: str):
+    """取消任务（支持跨进程实时取消）
+
+    通过 Redis Pub/Sub 发布取消消息：
+    - 任务进程订阅了 Redis 频道，会立即收到取消消息
+    - 适用于多进程部署环境
+
+    Args:
+        request: Sanic Request 对象
+        task_id: 任务 ID
+    """
+    from utils.cache import get_redis
+
+    try:
+        # 获取任务
+        task = await Task.get_or_none(id=task_id)
+        if not task:
+            return json(BaseResponse(
+                code=ErrorCode.NOT_FOUND,
+                message="任务不存在",
+                data=None
+            ).model_dump(), status=404)
+
+        # 检查任务状态
+        if task.status not in [TaskStatus.PENDING, TaskStatus.RUNNING, TaskStatus.WAITING_LOGIN]:
+            return json(BaseResponse(
+                code=ErrorCode.INTERNAL_ERROR,
+                message=f"任务状态为 {task.status}，无法取消",
+                data=None
+            ).model_dump(), status=400)
+
+        # 通过 Redis Pub/Sub 发布取消消息
+        cancel_channel = f"{CANCEL_CHANNEL_PREFIX}{task_id}"
+        redis = await get_redis()
+
+        # 发布取消消息（跨进程通知）
+        await redis.publish(cancel_channel, "cancel")
+        logger.info(f"已向任务 {task_id} 发布取消消息（Redis Pub/Sub）")
+
+        # 标记任务为已取消
+        await task.cancel()
+
+        logger.info(f"任务 {task_id} 已被用户取消")
+
+        return json(BaseResponse(
+            code=ErrorCode.SUCCESS,
+            message="任务已取消",
+            data={
+                "task_id": str(task.id),
+                "status": TaskStatus.CANCELLED,
+                "message": "任务已成功取消"
+            }
+        ).model_dump())
+
+    except Exception as e:
+        logger.error(f"取消任务失败: {e}")
+        return json(BaseResponse(
+            code=ErrorCode.INTERNAL_ERROR,
+            message=str(e),
+            data=None
+        ).model_dump(), status=500)
+
+
 @sniper_bp.get("/task/<task_id:str>/logs")
 async def get_logs(request: Request, task_id: str):
     """获取日志流"""
@@ -269,8 +511,8 @@ async def list_agents(request: Request):
     agents = [
         {
             "id": "xhs_trend_agent",
-            "display_name": "小红书趋势追踪",
-            "description": "小红书平台爆款趋势追踪与分析",
+            "display_name": "小红书爆款分析(需要登陆)",
+            "description": "小红书平台爆款分析",
             "platform": "xiaohongshu",
             "icon": "fas fa-chart-line",
             "tags": ["Trend", "Analysis"],
@@ -285,7 +527,7 @@ async def list_agents(request: Request):
         },
         {
             "id": "xhs_creator_sniper",
-            "display_name": "小红书创作者监控",
+            "display_name": "小红书创作者监控(需要登陆)",
             "description": "监控小红书指定创作者的最新内容动态",
             "platform": "xiaohongshu",
             "icon": "fas fa-user-astronaut",
@@ -309,7 +551,7 @@ async def list_agents(request: Request):
         },
         {
             "id": "douyin_trend_agent",
-            "display_name": "抖音趋势追踪",
+            "display_name": "抖音趋势追踪(需要登陆)",
             "description": "抖音平台爆款趋势追踪与分析",
             "platform": "douyin",
             "icon": "fas fa-chart-line",
@@ -325,7 +567,7 @@ async def list_agents(request: Request):
         },
         {
             "id": "douyin_creator_sniper",
-            "display_name": "抖音创作者监控",
+            "display_name": "抖音创作者监控(需要登陆)",
             "description": "监控抖音指定创作者的最新内容动态",
             "platform": "douyin",
             "icon": "fas fa-user-astronaut",
@@ -336,6 +578,50 @@ async def list_agents(request: Request):
                     "required": True,
                     "description": "创作者ID列表",
                     "placeholder": "每行一个创作者ID"
+                }
+            }
+        },
+        {
+            "id": "wechat_harvest_agent",
+            "display_name": "微信公众号采集(无需登陆)",
+            "description": "采集微信公众号文章的结构化数据（标题、作者、内容、图片等）",
+            "platform": "wechat",
+            "icon": "fab fa-weixin",
+            "tags": ["Harvest", "WeChat"],
+            "params": {
+                "urls": {
+                    "type": "list[str]",
+                    "required": True,
+                    "description": "文章URL列表",
+                    "placeholder": "每行一个微信文章URL\nhttps://mp.weixin.qq.com/s/quwXBvQ_binMZvq43gNfXA\nhttps://mp.weixin.qq.com/s/quwXBvQ_binMZvq43gNfXA"
+                }
+            }
+        },
+        {
+            "id": "wechat_analyze_agent",
+            "display_name": "微信公众号分析(无需登陆)",
+            "description": "使用 LLM 深度分析公众号文章内容（核心观点、目标受众、价值评估等）",
+            "platform": "wechat",
+            "icon": "fas fa-brain",
+            "tags": ["Analysis", "WeChat", "LLM"],
+            "params": {
+                "articles": {
+                    "type": "str",
+                    "required": True,
+                    "description": "文章URL列表或JSON数据",
+                    "placeholder": "输入公众号内容"
+                },
+                "analysis_type": {
+                    "type": "str",
+                    "required": False,
+                    "description": "分析类型",
+                    "default": "comprehensive",
+                    "options": [
+                        {"value": "comprehensive", "label": "全面分析"},
+                        {"value": "quick", "label": "快速分析"},
+                        {"value": "comparison", "label": "对比分析"},
+                        {"value": "trend", "label": "趋势分析"}
+                    ]
                 }
             }
         }
